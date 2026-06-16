@@ -134,17 +134,22 @@ def atom_attention_encoder_forward(
     c: jnp.ndarray,
     atom_enc_bias: jnp.ndarray,
     to_keys: Callable[[jnp.ndarray], jnp.ndarray],
-    r: jnp.ndarray,
+    r: jnp.ndarray | None = None,
     multiplicity: int = 1,
     attn_window_queries: int = 32,
     attn_window_keys: int = 128,
+    structure_prediction: bool = True,
     eps: float = 1e-5,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Run Boltz AtomAttentionEncoder using precomputed atom conditioning."""
 
     atom_mask = feats["atom_pad_mask"].astype(bool)
-    q = jnp.repeat(q, multiplicity, axis=0)
-    q = q + _linear(r, params["r_to_q_trans"]["kernel"])
+    if structure_prediction:
+        if r is None:
+            msg = "r is required when structure_prediction=True"
+            raise ValueError(msg)
+        q = jnp.repeat(q, multiplicity, axis=0)
+        q = q + _linear(r, params["r_to_q_trans"]["kernel"])
     c = jnp.repeat(c, multiplicity, axis=0)
     atom_mask = jnp.repeat(atom_mask, multiplicity, axis=0)
 

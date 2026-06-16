@@ -103,7 +103,7 @@ def _attention_pair_bias_no_proj_z_forward(
     inf: float,
 ) -> jnp.ndarray:
     batch, _, c_s = s.shape
-    num_heads = int(params["num_heads"])
+    num_heads = bias.shape[-1]
     head_dim = c_s // num_heads
 
     q = _linear(s, params["proj_q"]["kernel"], params["proj_q"]["bias"]).reshape(

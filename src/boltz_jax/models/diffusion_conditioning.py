@@ -60,8 +60,9 @@ def diffusion_conditioning_forward(
 def atom_encoder_forward(
     params: Params,
     feats: Mapping[str, jnp.ndarray],
-    s_trunk: jnp.ndarray,
-    z: jnp.ndarray,
+    s_trunk: jnp.ndarray | None = None,
+    z: jnp.ndarray | None = None,
+    structure_prediction: bool = True,
     atoms_per_window_queries: int = 32,
     atoms_per_window_keys: int = 128,
     eps: float = 1e-5,
@@ -124,43 +125,47 @@ def atom_encoder_forward(
     p = p + _linear(valid, params["embed_atompair_mask"]["kernel"]) * valid
 
     q = c
-    s_to_c = params["s_to_c_trans"]
-    s_to_c_out = _linear(
-        _layer_norm(
-            s_trunk.astype(jnp.float32),
-            s_to_c["norm"]["scale"],
-            s_to_c["norm"]["bias"],
-            eps,
-        ),
-        s_to_c["linear"]["kernel"],
-    )
-    c = c + jnp.einsum(
-        "bat,btd->bad",
-        feats["atom_to_token"].astype(jnp.float32),
-        s_to_c_out,
-    ).astype(c.dtype)
+    if structure_prediction:
+        if s_trunk is None or z is None:
+            msg = "s_trunk and z are required when structure_prediction=True"
+            raise ValueError(msg)
+        s_to_c = params["s_to_c_trans"]
+        s_to_c_out = _linear(
+            _layer_norm(
+                s_trunk.astype(jnp.float32),
+                s_to_c["norm"]["scale"],
+                s_to_c["norm"]["bias"],
+                eps,
+            ),
+            s_to_c["linear"]["kernel"],
+        )
+        c = c + jnp.einsum(
+            "bat,btd->bad",
+            feats["atom_to_token"].astype(jnp.float32),
+            s_to_c_out,
+        ).astype(c.dtype)
 
-    z_to_p = params["z_to_p_trans"]
-    z_to_p_out = _linear(
-        _layer_norm(
-            z.astype(jnp.float32),
-            z_to_p["norm"]["scale"],
-            z_to_p["norm"]["bias"],
-            eps,
-        ),
-        z_to_p["linear"]["kernel"],
-    )
-    atom_to_token_queries = jnp.reshape(
-        feats["atom_to_token"].astype(jnp.float32),
-        (batch, num_windows, w, feats["atom_to_token"].shape[-1]),
-    )
-    atom_to_token_keys = to_keys(feats["atom_to_token"].astype(jnp.float32))
-    p = p + jnp.einsum(
-        "bijd,bwki,bwlj->bwkld",
-        z_to_p_out,
-        atom_to_token_queries,
-        atom_to_token_keys,
-    ).astype(p.dtype)
+        z_to_p = params["z_to_p_trans"]
+        z_to_p_out = _linear(
+            _layer_norm(
+                z.astype(jnp.float32),
+                z_to_p["norm"]["scale"],
+                z_to_p["norm"]["bias"],
+                eps,
+            ),
+            z_to_p["linear"]["kernel"],
+        )
+        atom_to_token_queries = jnp.reshape(
+            feats["atom_to_token"].astype(jnp.float32),
+            (batch, num_windows, w, feats["atom_to_token"].shape[-1]),
+        )
+        atom_to_token_keys = to_keys(feats["atom_to_token"].astype(jnp.float32))
+        p = p + jnp.einsum(
+            "bijd,bwki,bwlj->bwkld",
+            z_to_p_out,
+            atom_to_token_queries,
+            atom_to_token_keys,
+        ).astype(p.dtype)
 
     p = p + _linear(
         jax.nn.relu(jnp.reshape(c, (batch, num_windows, w, 1, c.shape[-1]))),

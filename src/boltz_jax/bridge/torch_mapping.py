@@ -27,6 +27,16 @@ AtomEncoderParams = dict[str, Any]
 ProjectionListParams = list[dict[str, dict[str, jnp.ndarray]]]
 DiffusionConditioningParams = dict[str, Any]
 ConditionedDiffusionModelParams = dict[str, Any]
+InputEmbedderParams = dict[str, Any]
+PairWeightedAveragingParams = dict[str, dict[str, jnp.ndarray]]
+OuterProductMeanParams = dict[str, dict[str, jnp.ndarray]]
+PairformerNoSeqLayerParams = dict[str, Any]
+MSALayerParams = dict[str, Any]
+MSAModuleParams = dict[str, Any]
+RelativePositionParams = dict[str, dict[str, jnp.ndarray]]
+ContactConditioningParams = dict[str, Any]
+Boltz2TrunkParams = dict[str, Any]
+Boltz2GraphParams = dict[str, Any]
 
 
 def map_transition_state_dict(
@@ -298,13 +308,13 @@ def map_atom_attention_encoder_state_dict(
     prefix: str,
     num_heads: int = 4,
     num_layers: int | None = None,
+    structure_prediction: bool = True,
 ) -> AtomAttentionEncoderParams:
     """Map a Boltz AtomAttentionEncoder to a JAX pytree."""
 
-    required_keys = (
-        f"{prefix}.r_to_q_trans.weight",
-        f"{prefix}.atom_to_token_trans.0.weight",
-    )
+    required_keys = (f"{prefix}.atom_to_token_trans.0.weight",)
+    if structure_prediction:
+        required_keys = (f"{prefix}.r_to_q_trans.weight", *required_keys)
     missing_keys = [key for key in required_keys if key not in state_dict]
     if missing_keys:
         missing = ", ".join(missing_keys)
@@ -314,10 +324,7 @@ def map_atom_attention_encoder_state_dict(
         )
         raise KeyError(msg)
 
-    return {
-        "r_to_q_trans": {
-            "kernel": _linear_kernel(state_dict[f"{prefix}.r_to_q_trans.weight"])
-        },
+    params: AtomAttentionEncoderParams = {
         "atom_encoder": map_atom_transformer_state_dict(
             state_dict,
             f"{prefix}.atom_encoder",
@@ -330,6 +337,11 @@ def map_atom_attention_encoder_state_dict(
             )
         },
     }
+    if structure_prediction:
+        params["r_to_q_trans"] = {
+            "kernel": _linear_kernel(state_dict[f"{prefix}.r_to_q_trans.weight"])
+        }
+    return params
 
 
 def map_atom_attention_decoder_state_dict(
@@ -386,6 +398,7 @@ def map_atom_attention_decoder_state_dict(
 def map_atom_encoder_state_dict(
     state_dict: Mapping[str, Any],
     prefix: str,
+    structure_prediction: bool = True,
 ) -> AtomEncoderParams:
     """Map a Boltz AtomEncoder to a JAX pytree."""
 
@@ -395,18 +408,23 @@ def map_atom_encoder_state_dict(
         f"{prefix}.embed_atompair_ref_pos.weight",
         f"{prefix}.embed_atompair_ref_dist.weight",
         f"{prefix}.embed_atompair_mask.weight",
-        f"{prefix}.s_to_c_trans.0.weight",
-        f"{prefix}.s_to_c_trans.0.bias",
-        f"{prefix}.s_to_c_trans.1.weight",
-        f"{prefix}.z_to_p_trans.0.weight",
-        f"{prefix}.z_to_p_trans.0.bias",
-        f"{prefix}.z_to_p_trans.1.weight",
         f"{prefix}.c_to_p_trans_k.1.weight",
         f"{prefix}.c_to_p_trans_q.1.weight",
         f"{prefix}.p_mlp.1.weight",
         f"{prefix}.p_mlp.3.weight",
         f"{prefix}.p_mlp.5.weight",
     )
+    if structure_prediction:
+        required_keys = (
+            *required_keys[:5],
+            f"{prefix}.s_to_c_trans.0.weight",
+            f"{prefix}.s_to_c_trans.0.bias",
+            f"{prefix}.s_to_c_trans.1.weight",
+            f"{prefix}.z_to_p_trans.0.weight",
+            f"{prefix}.z_to_p_trans.0.bias",
+            f"{prefix}.z_to_p_trans.1.weight",
+            *required_keys[5:],
+        )
     missing_keys = [key for key in required_keys if key not in state_dict]
     if missing_keys:
         missing = ", ".join(missing_keys)
@@ -416,7 +434,7 @@ def map_atom_encoder_state_dict(
         )
         raise KeyError(msg)
 
-    return {
+    params: AtomEncoderParams = {
         "embed_atom_features": {
             "kernel": _linear_kernel(
                 state_dict[f"{prefix}.embed_atom_features.weight"]
@@ -438,24 +456,6 @@ def map_atom_encoder_state_dict(
                 state_dict[f"{prefix}.embed_atompair_mask.weight"]
             )
         },
-        "s_to_c_trans": {
-            "norm": {
-                "scale": _to_jax_array(state_dict[f"{prefix}.s_to_c_trans.0.weight"]),
-                "bias": _to_jax_array(state_dict[f"{prefix}.s_to_c_trans.0.bias"]),
-            },
-            "linear": {
-                "kernel": _linear_kernel(state_dict[f"{prefix}.s_to_c_trans.1.weight"])
-            },
-        },
-        "z_to_p_trans": {
-            "norm": {
-                "scale": _to_jax_array(state_dict[f"{prefix}.z_to_p_trans.0.weight"]),
-                "bias": _to_jax_array(state_dict[f"{prefix}.z_to_p_trans.0.bias"]),
-            },
-            "linear": {
-                "kernel": _linear_kernel(state_dict[f"{prefix}.z_to_p_trans.1.weight"])
-            },
-        },
         "c_to_p_trans_k": {
             "kernel": _linear_kernel(state_dict[f"{prefix}.c_to_p_trans_k.1.weight"])
         },
@@ -468,6 +468,26 @@ def map_atom_encoder_state_dict(
             {"kernel": _linear_kernel(state_dict[f"{prefix}.p_mlp.5.weight"])},
         ],
     }
+    if structure_prediction:
+        params["s_to_c_trans"] = {
+            "norm": {
+                "scale": _to_jax_array(state_dict[f"{prefix}.s_to_c_trans.0.weight"]),
+                "bias": _to_jax_array(state_dict[f"{prefix}.s_to_c_trans.0.bias"]),
+            },
+            "linear": {
+                "kernel": _linear_kernel(state_dict[f"{prefix}.s_to_c_trans.1.weight"])
+            },
+        }
+        params["z_to_p_trans"] = {
+            "norm": {
+                "scale": _to_jax_array(state_dict[f"{prefix}.z_to_p_trans.0.weight"]),
+                "bias": _to_jax_array(state_dict[f"{prefix}.z_to_p_trans.0.bias"]),
+            },
+            "linear": {
+                "kernel": _linear_kernel(state_dict[f"{prefix}.z_to_p_trans.1.weight"])
+            },
+        }
+    return params
 
 
 def map_projection_list_state_dict(
@@ -868,6 +888,378 @@ def map_conditioned_diffusion_model_state_dict(
             num_token_layers=num_token_layers,
             token_transformer_heads=token_transformer_heads,
         ),
+    }
+
+
+def map_boltz2_graph_state_dict(
+    state_dict: Mapping[str, Any],
+    *,
+    num_msa_layers: int | None = None,
+    num_pairformer_layers: int | None = None,
+    num_token_layers: int | None = None,
+    token_transformer_heads: int = 16,
+) -> Boltz2GraphParams:
+    """Map non-template Boltz-2 trunk plus conditioned score model."""
+
+    return {
+        "trunk": map_boltz2_trunk_state_dict(
+            state_dict,
+            num_msa_layers=num_msa_layers,
+            num_pairformer_layers=num_pairformer_layers,
+        ),
+        "conditioned_diffusion": map_conditioned_diffusion_model_state_dict(
+            state_dict,
+            num_token_layers=num_token_layers,
+            token_transformer_heads=token_transformer_heads,
+        ),
+    }
+
+
+def map_boltz2_trunk_state_dict(
+    state_dict: Mapping[str, Any],
+    *,
+    num_msa_layers: int | None = None,
+    num_pairformer_layers: int | None = None,
+) -> Boltz2TrunkParams:
+    """Map non-template Boltz-2 trunk weights."""
+
+    required_keys = (
+        "s_init.weight",
+        "z_init_1.weight",
+        "z_init_2.weight",
+        "token_bonds.weight",
+        "s_norm.weight",
+        "s_norm.bias",
+        "z_norm.weight",
+        "z_norm.bias",
+        "s_recycle.weight",
+        "z_recycle.weight",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = f"Missing required Boltz2 trunk state_dict keys: {missing}"
+        raise KeyError(msg)
+
+    params: Boltz2TrunkParams = {
+        "input_embedder": map_input_embedder_state_dict(state_dict),
+        "s_init": {"kernel": _linear_kernel(state_dict["s_init.weight"])},
+        "z_init_1": {"kernel": _linear_kernel(state_dict["z_init_1.weight"])},
+        "z_init_2": {"kernel": _linear_kernel(state_dict["z_init_2.weight"])},
+        "rel_pos": map_relative_position_state_dict(state_dict),
+        "token_bonds": {"kernel": _linear_kernel(state_dict["token_bonds.weight"])},
+        "contact_conditioning": map_contact_conditioning_state_dict(state_dict),
+        "s_norm": {
+            "scale": _to_jax_array(state_dict["s_norm.weight"]),
+            "bias": _to_jax_array(state_dict["s_norm.bias"]),
+        },
+        "z_norm": {
+            "scale": _to_jax_array(state_dict["z_norm.weight"]),
+            "bias": _to_jax_array(state_dict["z_norm.bias"]),
+        },
+        "s_recycle": {"kernel": _linear_kernel(state_dict["s_recycle.weight"])},
+        "z_recycle": {"kernel": _linear_kernel(state_dict["z_recycle.weight"])},
+        "msa_module": map_msa_module_state_dict(
+            state_dict,
+            num_layers=num_msa_layers,
+        ),
+        "pairformer_module": map_pairformer_module_state_dict(
+            state_dict,
+            num_layers=num_pairformer_layers,
+        ),
+    }
+    if "token_bonds_type.weight" in state_dict:
+        params["token_bonds_type"] = _to_jax_array(
+            state_dict["token_bonds_type.weight"]
+        )
+    return params
+
+
+def map_relative_position_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str = "rel_pos",
+) -> RelativePositionParams:
+    """Map Boltz RelativePositionEncoder weights."""
+
+    key = f"{prefix}.linear_layer.weight"
+    if key not in state_dict:
+        msg = f"Missing required RelativePositionEncoder state_dict key: {key}"
+        raise KeyError(msg)
+    return {"linear_layer": {"kernel": _linear_kernel(state_dict[key])}}
+
+
+def map_contact_conditioning_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str = "contact_conditioning",
+) -> ContactConditioningParams:
+    """Map Boltz ContactConditioning weights."""
+
+    required_keys = (
+        f"{prefix}.encoding_unspecified",
+        f"{prefix}.encoding_unselected",
+        f"{prefix}.fourier_embedding.proj.weight",
+        f"{prefix}.fourier_embedding.proj.bias",
+        f"{prefix}.encoder.weight",
+        f"{prefix}.encoder.bias",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            "Missing required ContactConditioning state_dict keys "
+            f"for prefix {prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+    return {
+        "encoding_unspecified": _to_jax_array(
+            state_dict[f"{prefix}.encoding_unspecified"]
+        ),
+        "encoding_unselected": _to_jax_array(
+            state_dict[f"{prefix}.encoding_unselected"]
+        ),
+        "fourier_embedding": {
+            "proj": {
+                "kernel": _linear_kernel(
+                    state_dict[f"{prefix}.fourier_embedding.proj.weight"]
+                ),
+                "bias": _to_jax_array(
+                    state_dict[f"{prefix}.fourier_embedding.proj.bias"]
+                ),
+            },
+        },
+        "encoder": {
+            "kernel": _linear_kernel(state_dict[f"{prefix}.encoder.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.encoder.bias"]),
+        },
+    }
+
+
+def map_input_embedder_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str = "input_embedder",
+) -> InputEmbedderParams:
+    """Map Boltz InputEmbedder weights to a JAX pytree."""
+
+    required_keys = (
+        f"{prefix}.atom_enc_proj_z.0.weight",
+        f"{prefix}.atom_enc_proj_z.0.bias",
+        f"{prefix}.atom_enc_proj_z.1.weight",
+        f"{prefix}.res_type_encoding.weight",
+        f"{prefix}.msa_profile_encoding.weight",
+        f"{prefix}.method_conditioning_init.weight",
+        f"{prefix}.modified_conditioning_init.weight",
+        f"{prefix}.cyclic_conditioning_init.weight",
+        f"{prefix}.mol_type_conditioning_init.weight",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            "Missing required InputEmbedder state_dict keys "
+            f"for prefix {prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+
+    return {
+        "atom_encoder": map_atom_encoder_state_dict(
+            state_dict,
+            f"{prefix}.atom_encoder",
+            structure_prediction=False,
+        ),
+        "atom_enc_proj_z": {
+            "norm": {
+                "scale": _to_jax_array(
+                    state_dict[f"{prefix}.atom_enc_proj_z.0.weight"]
+                ),
+                "bias": _to_jax_array(
+                    state_dict[f"{prefix}.atom_enc_proj_z.0.bias"]
+                ),
+            },
+            "linear": {
+                "kernel": _linear_kernel(
+                    state_dict[f"{prefix}.atom_enc_proj_z.1.weight"]
+                )
+            },
+        },
+        "atom_attention_encoder": map_atom_attention_encoder_state_dict(
+            state_dict,
+            f"{prefix}.atom_attention_encoder",
+            num_heads=4,
+            structure_prediction=False,
+        ),
+        "res_type_encoding": {
+            "kernel": _linear_kernel(state_dict[f"{prefix}.res_type_encoding.weight"])
+        },
+        "msa_profile_encoding": {
+            "kernel": _linear_kernel(
+                state_dict[f"{prefix}.msa_profile_encoding.weight"]
+            )
+        },
+        "method_conditioning_init": _to_jax_array(
+            state_dict[f"{prefix}.method_conditioning_init.weight"]
+        ),
+        "modified_conditioning_init": _to_jax_array(
+            state_dict[f"{prefix}.modified_conditioning_init.weight"]
+        ),
+        "cyclic_conditioning_init": {
+            "kernel": _linear_kernel(
+                state_dict[f"{prefix}.cyclic_conditioning_init.weight"]
+            )
+        },
+        "mol_type_conditioning_init": _to_jax_array(
+            state_dict[f"{prefix}.mol_type_conditioning_init.weight"]
+        ),
+    }
+
+
+def map_pair_weighted_averaging_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str,
+) -> PairWeightedAveragingParams:
+    """Map Boltz PairWeightedAveraging weights."""
+
+    required_keys = (
+        f"{prefix}.norm_m.weight",
+        f"{prefix}.norm_m.bias",
+        f"{prefix}.norm_z.weight",
+        f"{prefix}.norm_z.bias",
+        f"{prefix}.proj_m.weight",
+        f"{prefix}.proj_g.weight",
+        f"{prefix}.proj_z.weight",
+        f"{prefix}.proj_o.weight",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            "Missing required PairWeightedAveraging state_dict keys "
+            f"for prefix {prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+
+    return {
+        "norm_m": {
+            "scale": _to_jax_array(state_dict[f"{prefix}.norm_m.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.norm_m.bias"]),
+        },
+        "norm_z": {
+            "scale": _to_jax_array(state_dict[f"{prefix}.norm_z.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.norm_z.bias"]),
+        },
+        "proj_m": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_m.weight"])},
+        "proj_g": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_g.weight"])},
+        "proj_z": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_z.weight"])},
+        "proj_o": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_o.weight"])},
+    }
+
+
+def map_outer_product_mean_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str,
+) -> OuterProductMeanParams:
+    """Map Boltz OuterProductMean weights."""
+
+    required_keys = (
+        f"{prefix}.norm.weight",
+        f"{prefix}.norm.bias",
+        f"{prefix}.proj_a.weight",
+        f"{prefix}.proj_b.weight",
+        f"{prefix}.proj_o.weight",
+        f"{prefix}.proj_o.bias",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            "Missing required OuterProductMean state_dict keys "
+            f"for prefix {prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+
+    return {
+        "norm": {
+            "scale": _to_jax_array(state_dict[f"{prefix}.norm.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.norm.bias"]),
+        },
+        "proj_a": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_a.weight"])},
+        "proj_b": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_b.weight"])},
+        "proj_o": {
+            "kernel": _linear_kernel(state_dict[f"{prefix}.proj_o.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.proj_o.bias"]),
+        },
+    }
+
+
+def map_pairformer_no_seq_layer_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str,
+) -> PairformerNoSeqLayerParams:
+    """Map one Boltz PairformerNoSeqLayer."""
+
+    return {
+        "tri_mul_out": map_triangle_multiplication_state_dict(
+            state_dict, f"{prefix}.tri_mul_out"
+        ),
+        "tri_mul_in": map_triangle_multiplication_state_dict(
+            state_dict, f"{prefix}.tri_mul_in"
+        ),
+        "tri_att_start": map_triangle_attention_state_dict(
+            state_dict, f"{prefix}.tri_att_start"
+        ),
+        "tri_att_end": map_triangle_attention_state_dict(
+            state_dict, f"{prefix}.tri_att_end"
+        ),
+        "transition_z": map_transition_state_dict(state_dict, f"{prefix}.transition_z"),
+    }
+
+
+def map_msa_layer_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str,
+) -> MSALayerParams:
+    """Map one Boltz MSALayer."""
+
+    return {
+        "msa_transition": map_transition_state_dict(
+            state_dict, f"{prefix}.msa_transition"
+        ),
+        "pair_weighted_averaging": map_pair_weighted_averaging_state_dict(
+            state_dict, f"{prefix}.pair_weighted_averaging"
+        ),
+        "pairformer_layer": map_pairformer_no_seq_layer_state_dict(
+            state_dict, f"{prefix}.pairformer_layer"
+        ),
+        "outer_product_mean": map_outer_product_mean_state_dict(
+            state_dict, f"{prefix}.outer_product_mean"
+        ),
+    }
+
+
+def map_msa_module_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str = "msa_module",
+    num_layers: int | None = None,
+) -> MSAModuleParams:
+    """Map Boltz MSAModule weights."""
+
+    required_keys = (f"{prefix}.s_proj.weight", f"{prefix}.msa_proj.weight")
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            f"Missing required MSAModule state_dict keys for prefix "
+            f"{prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+
+    layer_indices = _module_list_indices(state_dict, f"{prefix}.layers", num_layers)
+    return {
+        "s_proj": {"kernel": _linear_kernel(state_dict[f"{prefix}.s_proj.weight"])},
+        "msa_proj": {"kernel": _linear_kernel(state_dict[f"{prefix}.msa_proj.weight"])},
+        "layers": [
+            map_msa_layer_state_dict(state_dict, f"{prefix}.layers.{index}")
+            for index in layer_indices
+        ],
     }
 
 
