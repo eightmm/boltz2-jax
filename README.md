@@ -81,3 +81,24 @@ uv run python scripts/benchmark_micro_modules.py \
 This is not a full Boltz port. It is a parity-controlled speed/VRAM probe for
 Pairformer-like O(N^3) pair updates and a structure-like iterative coordinate
 loop.
+
+## Checkpoint Blocks
+
+Run checkpoint-compatible PyTorch/JAX block benchmarks:
+
+```bash
+uv run python scripts/benchmark_checkpoint_blocks.py \
+  --residues 117 256 \
+  --warmup 2 \
+  --iters 5 \
+  --output outputs/checkpoint_blocks_plus_structure_cuda_117_256.json
+```
+
+Covered checkpoint-backed blocks:
+
+- Pairformer attention, triangle multiplication, and transitions.
+- `structure_module.score_model.single_conditioner`.
+- One `structure_module.score_model.token_transformer` layer.
+
+Not covered yet: atom attention encoder/decoder and complete diffusion score
+inference.

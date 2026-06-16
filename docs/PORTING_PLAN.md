@@ -50,3 +50,19 @@ Smoke GPU result path:
 
 Current limitation: this validates JAX/XLA mechanics and memory reporting only.
 It is not yet checkpoint-compatible Boltz-2 inference.
+
+## 2026-06-16 Checkpoint-Compatible Blocks
+
+Implemented checkpoint-backed JAX parity for:
+
+- Pairformer stack through `PairformerModule`.
+- `SingleConditioning`.
+- One `DiffusionTransformerLayer` from the token score transformer.
+
+Benchmark artifacts:
+
+- `outputs/checkpoint_blocks_plus_structure_cuda_117_256.json`
+- `outputs/checkpoint_blocks_plus_structure_cuda_512.json`
+
+Current limitation: this is still isolated block parity. Atom attention
+encoder/decoder and complete `DiffusionModule` score inference are not ported.
