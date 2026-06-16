@@ -10,6 +10,8 @@ import jax.numpy as jnp
 TransitionParams = dict[str, dict[str, jnp.ndarray]]
 AttentionPairBiasParams = dict[str, dict[str, jnp.ndarray]]
 TriangleMultiplicationParams = dict[str, dict[str, jnp.ndarray]]
+TriangleAttentionParams = dict[str, dict[str, jnp.ndarray]]
+PairformerLayerParams = dict[str, dict[str, jnp.ndarray]]
 
 
 def map_transition_state_dict(
@@ -123,6 +125,99 @@ def map_triangle_multiplication_state_dict(
         },
         "p_out": {"kernel": _linear_kernel(state_dict[f"{prefix}.p_out.weight"])},
         "g_out": {"kernel": _linear_kernel(state_dict[f"{prefix}.g_out.weight"])},
+    }
+
+
+def map_triangle_attention_state_dict(
+    state_dict: Mapping[str, Any], prefix: str
+) -> TriangleAttentionParams:
+    """Map one Boltz TriangleAttention module to a JAX pytree."""
+
+    required_keys = (
+        f"{prefix}.layer_norm.weight",
+        f"{prefix}.layer_norm.bias",
+        f"{prefix}.linear.weight",
+        f"{prefix}.mha.linear_q.weight",
+        f"{prefix}.mha.linear_k.weight",
+        f"{prefix}.mha.linear_v.weight",
+        f"{prefix}.mha.linear_o.weight",
+        f"{prefix}.mha.linear_g.weight",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            "Missing required TriangleAttention state_dict keys "
+            f"for prefix {prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+
+    return {
+        "layer_norm": {
+            "scale": _to_jax_array(state_dict[f"{prefix}.layer_norm.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.layer_norm.bias"]),
+        },
+        "linear": {"kernel": _linear_kernel(state_dict[f"{prefix}.linear.weight"])},
+        "mha": {
+            "linear_q": {
+                "kernel": _linear_kernel(state_dict[f"{prefix}.mha.linear_q.weight"])
+            },
+            "linear_k": {
+                "kernel": _linear_kernel(state_dict[f"{prefix}.mha.linear_k.weight"])
+            },
+            "linear_v": {
+                "kernel": _linear_kernel(state_dict[f"{prefix}.mha.linear_v.weight"])
+            },
+            "linear_o": {
+                "kernel": _linear_kernel(state_dict[f"{prefix}.mha.linear_o.weight"])
+            },
+            "linear_g": {
+                "kernel": _linear_kernel(state_dict[f"{prefix}.mha.linear_g.weight"])
+            },
+        },
+    }
+
+
+def map_pairformer_layer_state_dict(
+    state_dict: Mapping[str, Any], prefix: str
+) -> PairformerLayerParams:
+    """Map one Boltz PairformerLayer to a nested JAX pytree."""
+
+    required_keys = (
+        f"{prefix}.pre_norm_s.weight",
+        f"{prefix}.pre_norm_s.bias",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            "Missing required PairformerLayer state_dict keys "
+            f"for prefix {prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+
+    return {
+        "pre_norm_s": {
+            "scale": _to_jax_array(state_dict[f"{prefix}.pre_norm_s.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.pre_norm_s.bias"]),
+        },
+        "attention": map_attention_pair_bias_state_dict(
+            state_dict, f"{prefix}.attention"
+        ),
+        "tri_mul_out": map_triangle_multiplication_state_dict(
+            state_dict, f"{prefix}.tri_mul_out"
+        ),
+        "tri_mul_in": map_triangle_multiplication_state_dict(
+            state_dict, f"{prefix}.tri_mul_in"
+        ),
+        "tri_att_start": map_triangle_attention_state_dict(
+            state_dict, f"{prefix}.tri_att_start"
+        ),
+        "tri_att_end": map_triangle_attention_state_dict(
+            state_dict, f"{prefix}.tri_att_end"
+        ),
+        "transition_s": map_transition_state_dict(state_dict, f"{prefix}.transition_s"),
+        "transition_z": map_transition_state_dict(state_dict, f"{prefix}.transition_z"),
     }
 
 
