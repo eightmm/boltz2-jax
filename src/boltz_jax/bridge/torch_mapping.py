@@ -12,6 +12,7 @@ AttentionPairBiasParams = dict[str, dict[str, jnp.ndarray]]
 TriangleMultiplicationParams = dict[str, dict[str, jnp.ndarray]]
 TriangleAttentionParams = dict[str, dict[str, jnp.ndarray]]
 PairformerLayerParams = dict[str, dict[str, jnp.ndarray]]
+PairformerModuleParams = dict[str, list[PairformerLayerParams]]
 
 
 def map_transition_state_dict(
@@ -218,6 +219,34 @@ def map_pairformer_layer_state_dict(
         ),
         "transition_s": map_transition_state_dict(state_dict, f"{prefix}.transition_s"),
         "transition_z": map_transition_state_dict(state_dict, f"{prefix}.transition_z"),
+    }
+
+
+def map_pairformer_module_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str = "pairformer_module",
+    num_layers: int | None = None,
+) -> PairformerModuleParams:
+    """Map a Boltz PairformerModule stack to a JAX pytree."""
+
+    layer_indices = sorted(
+        {
+            int(key.split(".")[2])
+            for key in state_dict
+            if key.startswith(f"{prefix}.layers.")
+        }
+    )
+    if num_layers is not None:
+        layer_indices = layer_indices[:num_layers]
+    if not layer_indices:
+        msg = f"No PairformerModule layers found for prefix {prefix!r}"
+        raise KeyError(msg)
+
+    return {
+        "layers": [
+            map_pairformer_layer_state_dict(state_dict, f"{prefix}.layers.{index}")
+            for index in layer_indices
+        ]
     }
 
 

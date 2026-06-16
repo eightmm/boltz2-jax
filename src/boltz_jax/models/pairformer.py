@@ -13,6 +13,22 @@ from boltz_jax.models.triangle import triangle_multiplication_forward
 from boltz_jax.models.triangle_attention import triangle_attention_forward
 
 PairformerLayerParams = Mapping[str, Mapping[str, jnp.ndarray]]
+PairformerModuleParams = Mapping[str, list[PairformerLayerParams]]
+
+
+def pairformer_module_forward(
+    params: PairformerModuleParams,
+    s: jnp.ndarray,
+    z: jnp.ndarray,
+    mask: jnp.ndarray,
+    pair_mask: jnp.ndarray,
+    eps: float = 1e-5,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Run a Boltz PairformerModule stack in eval mode without kernels."""
+
+    for layer_params in params["layers"]:
+        s, z = pairformer_layer_forward(layer_params, s, z, mask, pair_mask, eps=eps)
+    return s, z
 
 
 def pairformer_layer_forward(
