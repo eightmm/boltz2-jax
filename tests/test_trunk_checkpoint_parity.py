@@ -12,7 +12,11 @@ from boltz_jax.bridge.torch_mapping import (
     map_boltz2_graph_state_dict,
     map_boltz2_trunk_state_dict,
 )
-from boltz_jax.models.trunk import boltz2_graph_score_forward, boltz2_trunk_forward
+from boltz_jax.models.trunk import (
+    boltz2_graph_score_forward,
+    boltz2_sample_forward,
+    boltz2_trunk_forward,
+)
 
 CHECKPOINT = (
     Path(__file__).resolve().parents[2] / "boltz/.cache/boltz/boltz2_conf.ckpt"
@@ -104,6 +108,41 @@ def test_checkpoint_boltz2_graph_score_jits(
     )
     assert actual.shape == (1, 64, 3)
     assert bool(jnp.all(jnp.isfinite(actual)))
+
+
+def test_checkpoint_boltz2_sample_jits(
+    checkpoint_state: dict[str, torch.Tensor],
+) -> None:
+    params = map_boltz2_graph_state_dict(
+        checkpoint_state,
+        num_msa_layers=1,
+        num_pairformer_layers=1,
+        num_token_layers=1,
+        token_transformer_heads=16,
+    )
+    feats = _jax_feats(_trunk_feats())
+    compiled = jax.jit(
+        boltz2_sample_forward,
+        static_argnames=(
+            "recycling_steps",
+            "num_sampling_steps",
+            "token_layers",
+            "multiplicity",
+        ),
+    )
+    actual = compiled(
+        params,
+        feats,
+        jax.random.PRNGKey(7),
+        recycling_steps=0,
+        num_sampling_steps=2,
+        token_layers=1,
+        multiplicity=1,
+        sigma_min=0.001,
+        sigma_max=0.01,
+    )
+    assert actual["sample_atom_coords"].shape == (1, 64, 3)
+    assert bool(jnp.all(jnp.isfinite(actual["sample_atom_coords"])))
 
 
 def _load_torch_trunk(

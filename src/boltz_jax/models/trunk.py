@@ -8,7 +8,11 @@ from math import pi
 import jax
 import jax.numpy as jnp
 
-from boltz_jax.models.diffusion import conditioned_diffusion_score_forward
+from boltz_jax.models.diffusion import (
+    conditioned_diffusion_score_forward,
+    diffusion_score_model_forward,
+)
+from boltz_jax.models.diffusion_conditioning import diffusion_conditioning_forward
 from boltz_jax.models.input_embedder import input_embedder_forward
 from boltz_jax.models.msa import msa_module_forward
 from boltz_jax.models.pairformer import pairformer_module_forward
@@ -48,6 +52,87 @@ def boltz2_graph_score_forward(
         multiplicity=multiplicity,
         eps=eps,
     )
+
+
+def boltz2_sample_forward(
+    params: Params,
+    feats: Mapping[str, jnp.ndarray],
+    key: jnp.ndarray,
+    *,
+    recycling_steps: int = 0,
+    num_sampling_steps: int = 5,
+    token_layers: int | None = None,
+    multiplicity: int = 1,
+    sigma_min: float = 0.0004,
+    sigma_max: float = 160.0,
+    sigma_data: float = 16.0,
+    rho: float = 7.0,
+    gamma_0: float = 0.8,
+    gamma_min: float = 1.0,
+    noise_scale: float = 1.003,
+    step_scale: float = 1.5,
+    eps: float = 1e-5,
+) -> dict[str, jnp.ndarray]:
+    """Run a JAX inference sampler without steering or random augmentation."""
+
+    trunk = boltz2_trunk_forward(
+        params["trunk"],
+        feats,
+        recycling_steps=recycling_steps,
+        eps=eps,
+    )
+    diffusion_params = params["conditioned_diffusion"]
+    diffusion_conditioning = diffusion_conditioning_forward(
+        diffusion_params["diffusion_conditioning"],
+        s_trunk=trunk["s"],
+        z_trunk=trunk["z"],
+        relative_position_encoding=trunk["relative_position_encoding"],
+        feats=feats,
+        token_layers=token_layers,
+        eps=eps,
+    )
+    sigmas = _sample_schedule(
+        num_sampling_steps,
+        sigma_min=sigma_min,
+        sigma_max=sigma_max,
+        sigma_data=sigma_data,
+        rho=rho,
+    )
+    atom_mask = jnp.repeat(feats["atom_pad_mask"], multiplicity, axis=0)
+    shape = (*atom_mask.shape, 3)
+    key, init_key = jax.random.split(key)
+    atom_coords = sigmas[0] * jax.random.normal(init_key, shape, dtype=jnp.float32)
+    gammas = jnp.where(sigmas > gamma_min, gamma_0, 0.0)
+
+    for step_idx in range(num_sampling_steps):
+        sigma_tm = sigmas[step_idx]
+        sigma_t = sigmas[step_idx + 1]
+        gamma = gammas[step_idx + 1]
+        t_hat = sigma_tm * (1.0 + gamma)
+        noise_var = jnp.maximum(noise_scale**2 * (t_hat**2 - sigma_tm**2), 0.0)
+        key, noise_key = jax.random.split(key)
+        noise = jnp.sqrt(noise_var) * jax.random.normal(
+            noise_key, shape, dtype=atom_coords.dtype
+        )
+        atom_coords_noisy = atom_coords + noise
+        atom_coords_denoised = _preconditioned_score_forward(
+            diffusion_params["score_model"],
+            s_inputs=trunk["s_inputs"],
+            s_trunk=trunk["s"],
+            r_noisy=atom_coords_noisy,
+            sigma=t_hat,
+            feats=feats,
+            diffusion_conditioning=diffusion_conditioning,
+            multiplicity=multiplicity,
+            sigma_data=sigma_data,
+            eps=eps,
+        )
+        denoised_over_sigma = (atom_coords_noisy - atom_coords_denoised) / t_hat
+        atom_coords = atom_coords_noisy + (
+            step_scale * (sigma_t - t_hat) * denoised_over_sigma
+        )
+
+    return {"sample_atom_coords": atom_coords}
 
 
 def boltz2_trunk_forward(
@@ -224,6 +309,62 @@ def contact_conditioning_forward(
         + params["encoding_unspecified"] * flags[:, :, :, 0:1]
         + params["encoding_unselected"] * flags[:, :, :, 1:2]
     )
+
+
+def _preconditioned_score_forward(
+    params: Params,
+    *,
+    s_inputs: jnp.ndarray,
+    s_trunk: jnp.ndarray,
+    r_noisy: jnp.ndarray,
+    sigma: jnp.ndarray,
+    feats: Mapping[str, jnp.ndarray],
+    diffusion_conditioning: Mapping[str, object],
+    multiplicity: int,
+    sigma_data: float,
+    eps: float,
+) -> jnp.ndarray:
+    padded_sigma = jnp.reshape(sigma, (1, 1, 1))
+    scaled_input = r_noisy / jnp.sqrt(padded_sigma**2 + sigma_data**2)
+    times = jnp.full(
+        (r_noisy.shape[0],),
+        jnp.log(sigma / sigma_data) * 0.25,
+        dtype=r_noisy.dtype,
+    )
+    r_update = diffusion_score_model_forward(
+        params,
+        s_inputs=s_inputs,
+        s_trunk=s_trunk,
+        r_noisy=scaled_input,
+        times=times,
+        feats=feats,
+        diffusion_conditioning=diffusion_conditioning,
+        multiplicity=multiplicity,
+        eps=eps,
+    )
+    c_skip = sigma_data**2 / (padded_sigma**2 + sigma_data**2)
+    c_out = padded_sigma * sigma_data / jnp.sqrt(sigma_data**2 + padded_sigma**2)
+    return c_skip * r_noisy + c_out * r_update
+
+
+def _sample_schedule(
+    num_sampling_steps: int,
+    *,
+    sigma_min: float,
+    sigma_max: float,
+    sigma_data: float,
+    rho: float,
+) -> jnp.ndarray:
+    inv_rho = 1.0 / rho
+    steps = jnp.arange(num_sampling_steps, dtype=jnp.float32)
+    sigmas = (
+        sigma_max**inv_rho
+        + steps
+        / (num_sampling_steps - 1)
+        * (sigma_min**inv_rho - sigma_max**inv_rho)
+    ) ** rho
+    sigmas = sigmas * sigma_data
+    return jnp.pad(sigmas, (0, 1))
 
 
 def _linear(

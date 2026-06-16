@@ -44,9 +44,14 @@ def diffusion_conditioning_forward(
     token_proj = params["token_trans_proj_z"]
     if token_layers is not None:
         token_proj = token_proj[:token_layers]
+    atoms = feats["ref_pos"].shape[1]
+    w = atoms_per_window_queries
+    h_keys = atoms_per_window_keys
+    indexing = get_indexing_matrix(k=atoms // w, w=w, h_keys=h_keys)
     return {
         "q": q,
         "c": c,
+        "to_keys": lambda x: single_to_keys(x, indexing, w=w, h_keys=h_keys),
         "atom_enc_bias": _projection_list_forward(
             params["atom_enc_proj_z"], p, eps
         ),

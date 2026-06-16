@@ -36,6 +36,7 @@ from boltz_jax.models.triangle import triangle_multiplication_forward
 from boltz_jax.models.triangle_attention import triangle_attention_forward
 from boltz_jax.models.trunk import (
     boltz2_graph_score_forward,
+    boltz2_sample_forward,
     boltz2_trunk_forward,
     contact_conditioning_forward,
     relative_position_forward,
@@ -48,6 +49,7 @@ __all__ = [
     "atom_encoder_forward",
     "atom_transformer_forward",
     "boltz2_graph_score_forward",
+    "boltz2_sample_forward",
     "boltz2_trunk_forward",
     "contact_conditioning_forward",
     "conditioned_transition_block_forward",
