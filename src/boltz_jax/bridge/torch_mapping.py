@@ -18,6 +18,11 @@ PairwiseConditioningParams = dict[str, Any]
 AdaLNParams = dict[str, dict[str, jnp.ndarray]]
 ConditionedTransitionBlockParams = dict[str, Any]
 DiffusionTransformerLayerParams = dict[str, Any]
+DiffusionTransformerParams = dict[str, list[DiffusionTransformerLayerParams]]
+AtomTransformerParams = dict[str, DiffusionTransformerParams]
+AtomAttentionEncoderParams = dict[str, Any]
+AtomAttentionDecoderParams = dict[str, Any]
+DiffusionScoreModelParams = dict[str, Any]
 
 
 def map_transition_state_dict(
@@ -243,6 +248,135 @@ def map_diffusion_transformer_layer_state_dict(
         }
 
     return params
+
+
+def map_diffusion_transformer_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str,
+    num_heads: int,
+    num_layers: int | None = None,
+) -> DiffusionTransformerParams:
+    """Map a Boltz DiffusionTransformer stack to a JAX pytree."""
+
+    layer_indices = _module_list_indices(state_dict, f"{prefix}.layers", num_layers)
+    return {
+        "layers": [
+            map_diffusion_transformer_layer_state_dict(
+                state_dict,
+                f"{prefix}.layers.{index}",
+                num_heads=num_heads,
+            )
+            for index in layer_indices
+        ]
+    }
+
+
+def map_atom_transformer_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str,
+    num_heads: int,
+    num_layers: int | None = None,
+) -> AtomTransformerParams:
+    """Map a Boltz AtomTransformer to a JAX pytree."""
+
+    return {
+        "diffusion_transformer": map_diffusion_transformer_state_dict(
+            state_dict,
+            f"{prefix}.diffusion_transformer",
+            num_heads=num_heads,
+            num_layers=num_layers,
+        )
+    }
+
+
+def map_atom_attention_encoder_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str,
+    num_heads: int = 4,
+    num_layers: int | None = None,
+) -> AtomAttentionEncoderParams:
+    """Map a Boltz AtomAttentionEncoder to a JAX pytree."""
+
+    required_keys = (
+        f"{prefix}.r_to_q_trans.weight",
+        f"{prefix}.atom_to_token_trans.0.weight",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            "Missing required AtomAttentionEncoder state_dict keys "
+            f"for prefix {prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+
+    return {
+        "r_to_q_trans": {
+            "kernel": _linear_kernel(state_dict[f"{prefix}.r_to_q_trans.weight"])
+        },
+        "atom_encoder": map_atom_transformer_state_dict(
+            state_dict,
+            f"{prefix}.atom_encoder",
+            num_heads=num_heads,
+            num_layers=num_layers,
+        ),
+        "atom_to_token_trans": {
+            "kernel": _linear_kernel(
+                state_dict[f"{prefix}.atom_to_token_trans.0.weight"]
+            )
+        },
+    }
+
+
+def map_atom_attention_decoder_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str,
+    num_heads: int = 4,
+    num_layers: int | None = None,
+) -> AtomAttentionDecoderParams:
+    """Map a Boltz AtomAttentionDecoder to a JAX pytree."""
+
+    required_keys = (
+        f"{prefix}.a_to_q_trans.weight",
+        f"{prefix}.atom_feat_to_atom_pos_update.0.weight",
+        f"{prefix}.atom_feat_to_atom_pos_update.0.bias",
+        f"{prefix}.atom_feat_to_atom_pos_update.1.weight",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            "Missing required AtomAttentionDecoder state_dict keys "
+            f"for prefix {prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+
+    return {
+        "a_to_q_trans": {
+            "kernel": _linear_kernel(state_dict[f"{prefix}.a_to_q_trans.weight"])
+        },
+        "atom_decoder": map_atom_transformer_state_dict(
+            state_dict,
+            f"{prefix}.atom_decoder",
+            num_heads=num_heads,
+            num_layers=num_layers,
+        ),
+        "atom_feat_to_atom_pos_update": {
+            "norm": {
+                "scale": _to_jax_array(
+                    state_dict[f"{prefix}.atom_feat_to_atom_pos_update.0.weight"]
+                ),
+                "bias": _to_jax_array(
+                    state_dict[f"{prefix}.atom_feat_to_atom_pos_update.0.bias"]
+                ),
+            },
+            "linear": {
+                "kernel": _linear_kernel(
+                    state_dict[f"{prefix}.atom_feat_to_atom_pos_update.1.weight"]
+                )
+            },
+        },
+    }
 
 
 def map_triangle_multiplication_state_dict(
@@ -515,6 +649,61 @@ def map_pairwise_conditioning_state_dict(
             map_transition_state_dict(state_dict, f"{prefix}.transitions.{index}")
             for index in transition_indices
         ],
+    }
+
+
+def map_diffusion_score_model_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str,
+    num_token_layers: int | None = None,
+) -> DiffusionScoreModelParams:
+    """Map Boltz DiffusionModule score_model weights to a JAX pytree."""
+
+    required_keys = (
+        f"{prefix}.s_to_a_linear.0.weight",
+        f"{prefix}.s_to_a_linear.0.bias",
+        f"{prefix}.s_to_a_linear.1.weight",
+        f"{prefix}.a_norm.weight",
+        f"{prefix}.a_norm.bias",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            "Missing required DiffusionModule score_model state_dict keys "
+            f"for prefix {prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+
+    return {
+        "single_conditioner": map_single_conditioning_state_dict(
+            state_dict, f"{prefix}.single_conditioner"
+        ),
+        "atom_attention_encoder": map_atom_attention_encoder_state_dict(
+            state_dict, f"{prefix}.atom_attention_encoder"
+        ),
+        "s_to_a_linear": {
+            "norm": {
+                "scale": _to_jax_array(state_dict[f"{prefix}.s_to_a_linear.0.weight"]),
+                "bias": _to_jax_array(state_dict[f"{prefix}.s_to_a_linear.0.bias"]),
+            },
+            "linear": {
+                "kernel": _linear_kernel(state_dict[f"{prefix}.s_to_a_linear.1.weight"])
+            },
+        },
+        "token_transformer": map_diffusion_transformer_state_dict(
+            state_dict,
+            f"{prefix}.token_transformer",
+            num_heads=8,
+            num_layers=num_token_layers,
+        ),
+        "a_norm": {
+            "scale": _to_jax_array(state_dict[f"{prefix}.a_norm.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.a_norm.bias"]),
+        },
+        "atom_attention_decoder": map_atom_attention_decoder_state_dict(
+            state_dict, f"{prefix}.atom_attention_decoder"
+        ),
     }
 
 

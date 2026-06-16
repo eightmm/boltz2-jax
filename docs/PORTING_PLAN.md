@@ -66,3 +66,21 @@ Benchmark artifacts:
 
 Current limitation: this is still isolated block parity. Atom attention
 encoder/decoder and complete `DiffusionModule` score inference are not ported.
+
+## 2026-06-16 Diffusion Score Graph
+
+Implemented JAX parity for the precomputed-conditioning score path:
+
+- atom window indexing and `single_to_keys`
+- `AtomTransformer`
+- `AtomAttentionEncoder`
+- `AtomAttentionDecoder`
+- `DiffusionModule.forward` equivalent from single conditioning through atom
+  decoder, with precomputed `diffusion_conditioning`
+
+CUDA smoke artifact:
+
+- `outputs/diffusion_score_cuda_tokens8_atoms64_layers24.json`
+
+Current limitation: `DiffusionConditioning`, real feature preprocessing, MSA
+module, and sampling loop are not yet in the JAX graph.

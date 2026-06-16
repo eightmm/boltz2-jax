@@ -100,5 +100,23 @@ Covered checkpoint-backed blocks:
 - `structure_module.score_model.single_conditioner`.
 - One `structure_module.score_model.token_transformer` layer.
 
-Not covered yet: atom attention encoder/decoder and complete diffusion score
-inference.
+For full score-model coverage, use the diffusion score graph benchmark below.
+
+## Diffusion Score Graph
+
+Run a checkpoint-compatible score-model benchmark with precomputed diffusion
+conditioning:
+
+```bash
+uv run python scripts/benchmark_diffusion_score.py \
+  --tokens 8 \
+  --atoms 64 \
+  --token-layers 24 \
+  --warmup 1 \
+  --iters 3 \
+  --output outputs/diffusion_score_cuda_tokens8_atoms64_layers24.json
+```
+
+This compiles the score path from `SingleConditioning` through atom
+encoder/decoder and the full token transformer stack. It still assumes
+diffusion conditioning tensors are already prepared.

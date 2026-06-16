@@ -1,10 +1,19 @@
 """JAX model components for the experimental Boltz-2 port."""
 
+from boltz_jax.models.atom import (
+    atom_attention_decoder_forward,
+    atom_attention_encoder_forward,
+    atom_transformer_forward,
+    diffusion_transformer_forward,
+    get_indexing_matrix,
+    single_to_keys,
+)
 from boltz_jax.models.attention import attention_pair_bias_forward
 from boltz_jax.models.conditioning import (
     pairwise_conditioning_forward,
     single_conditioning_forward,
 )
+from boltz_jax.models.diffusion import diffusion_score_model_forward
 from boltz_jax.models.diffusion_transformer import (
     conditioned_transition_block_forward,
     diffusion_transformer_layer_forward,
@@ -19,12 +28,19 @@ from boltz_jax.models.triangle_attention import triangle_attention_forward
 
 __all__ = [
     "attention_pair_bias_forward",
+    "atom_attention_decoder_forward",
+    "atom_attention_encoder_forward",
+    "atom_transformer_forward",
     "conditioned_transition_block_forward",
+    "diffusion_transformer_forward",
     "diffusion_transformer_layer_forward",
+    "diffusion_score_model_forward",
+    "get_indexing_matrix",
     "pairwise_conditioning_forward",
     "pairformer_layer_forward",
     "pairformer_module_forward",
     "single_conditioning_forward",
+    "single_to_keys",
     "transition_forward",
     "triangle_attention_forward",
     "triangle_multiplication_forward",
