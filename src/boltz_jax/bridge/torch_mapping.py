@@ -8,6 +8,7 @@ from typing import Any
 import jax.numpy as jnp
 
 TransitionParams = dict[str, dict[str, jnp.ndarray]]
+AttentionPairBiasParams = dict[str, dict[str, jnp.ndarray]]
 
 
 def map_transition_state_dict(
@@ -39,6 +40,48 @@ def map_transition_state_dict(
         "fc1": {"kernel": _linear_kernel(state_dict[f"{prefix}.fc1.weight"])},
         "fc2": {"kernel": _linear_kernel(state_dict[f"{prefix}.fc2.weight"])},
         "fc3": {"kernel": _linear_kernel(state_dict[f"{prefix}.fc3.weight"])},
+    }
+
+
+def map_attention_pair_bias_state_dict(
+    state_dict: Mapping[str, Any], prefix: str
+) -> AttentionPairBiasParams:
+    """Map one Boltz AttentionPairBias v2 module to a JAX pytree."""
+
+    required_keys = (
+        f"{prefix}.proj_q.weight",
+        f"{prefix}.proj_q.bias",
+        f"{prefix}.proj_k.weight",
+        f"{prefix}.proj_v.weight",
+        f"{prefix}.proj_g.weight",
+        f"{prefix}.proj_z.0.weight",
+        f"{prefix}.proj_z.0.bias",
+        f"{prefix}.proj_z.1.weight",
+        f"{prefix}.proj_o.weight",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            "Missing required AttentionPairBias state_dict keys "
+            f"for prefix {prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+
+    return {
+        "proj_q": {
+            "kernel": _linear_kernel(state_dict[f"{prefix}.proj_q.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.proj_q.bias"]),
+        },
+        "proj_k": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_k.weight"])},
+        "proj_v": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_v.weight"])},
+        "proj_g": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_g.weight"])},
+        "proj_z_norm": {
+            "scale": _to_jax_array(state_dict[f"{prefix}.proj_z.0.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.proj_z.0.bias"]),
+        },
+        "proj_z": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_z.1.weight"])},
+        "proj_o": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_o.weight"])},
     }
 
 

@@ -31,6 +31,12 @@ def checkpoint_state_dict(checkpoint: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+def load_checkpoint_state_dict(path: Path) -> dict[str, Any]:
+    """Load only the state dict from a PyTorch or Lightning checkpoint."""
+
+    return checkpoint_state_dict(_load_torch_checkpoint(path))
+
+
 def describe_checkpoint(path: Path, limit: int) -> list[str]:
     """Return compact checkpoint key/shape lines."""
 
