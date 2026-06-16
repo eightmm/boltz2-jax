@@ -60,3 +60,24 @@ CUDA 12 is also available as an explicit extra for fallback testing:
 ```bash
 uv sync --extra cuda12 --extra dev --extra torch-bridge
 ```
+
+## Microbench
+
+Run the PyTorch/JAX-equivalent micro Pairformer/Structure benchmark:
+
+```bash
+uv run python scripts/benchmark_micro_modules.py \
+  --residues 64 128 \
+  --token-s 128 \
+  --token-z 64 \
+  --heads 8 \
+  --blocks 2 \
+  --steps 10 \
+  --warmup 2 \
+  --iters 5 \
+  --output outputs/microbench_cuda_64_128.json
+```
+
+This is not a full Boltz port. It is a parity-controlled speed/VRAM probe for
+Pairformer-like O(N^3) pair updates and a structure-like iterative coordinate
+loop.

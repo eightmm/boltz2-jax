@@ -32,3 +32,21 @@ Boltz-2 structure generation while keeping crystal-level structure quality.
 - Use `jax.block_until_ready()` around timed calls.
 - Record peak VRAM after warmup.
 - Test real processed inputs only once full structure inference exists.
+
+## 2026-06-16 Microbench Prototype
+
+Implemented a first PyTorch/JAX-equivalent microbench instead of claiming a full
+Pairformer/Structure port. It covers:
+
+- token attention with pair bias
+- triangle-like O(N^3) pair updates
+- token/pair transition MLPs
+- structure-like coordinate update loop conditioned on token and pair tensors
+
+Smoke GPU result path:
+
+- `outputs/microbench_cuda_smoke.json`
+- `outputs/microbench_cuda_64_128.json`
+
+Current limitation: this validates JAX/XLA mechanics and memory reporting only.
+It is not yet checkpoint-compatible Boltz-2 inference.
