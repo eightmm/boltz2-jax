@@ -9,6 +9,7 @@ import jax.numpy as jnp
 
 TransitionParams = dict[str, dict[str, jnp.ndarray]]
 AttentionPairBiasParams = dict[str, dict[str, jnp.ndarray]]
+TriangleMultiplicationParams = dict[str, dict[str, jnp.ndarray]]
 
 
 def map_transition_state_dict(
@@ -82,6 +83,46 @@ def map_attention_pair_bias_state_dict(
         },
         "proj_z": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_z.1.weight"])},
         "proj_o": {"kernel": _linear_kernel(state_dict[f"{prefix}.proj_o.weight"])},
+    }
+
+
+def map_triangle_multiplication_state_dict(
+    state_dict: Mapping[str, Any], prefix: str
+) -> TriangleMultiplicationParams:
+    """Map one Boltz TriangleMultiplication module to a JAX pytree."""
+
+    required_keys = (
+        f"{prefix}.norm_in.weight",
+        f"{prefix}.norm_in.bias",
+        f"{prefix}.p_in.weight",
+        f"{prefix}.g_in.weight",
+        f"{prefix}.norm_out.weight",
+        f"{prefix}.norm_out.bias",
+        f"{prefix}.p_out.weight",
+        f"{prefix}.g_out.weight",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            "Missing required TriangleMultiplication state_dict keys "
+            f"for prefix {prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+
+    return {
+        "norm_in": {
+            "scale": _to_jax_array(state_dict[f"{prefix}.norm_in.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.norm_in.bias"]),
+        },
+        "p_in": {"kernel": _linear_kernel(state_dict[f"{prefix}.p_in.weight"])},
+        "g_in": {"kernel": _linear_kernel(state_dict[f"{prefix}.g_in.weight"])},
+        "norm_out": {
+            "scale": _to_jax_array(state_dict[f"{prefix}.norm_out.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.norm_out.bias"]),
+        },
+        "p_out": {"kernel": _linear_kernel(state_dict[f"{prefix}.p_out.weight"])},
+        "g_out": {"kernel": _linear_kernel(state_dict[f"{prefix}.g_out.weight"])},
     }
 
 
