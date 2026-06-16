@@ -13,7 +13,14 @@ from boltz_jax.models.conditioning import (
     pairwise_conditioning_forward,
     single_conditioning_forward,
 )
-from boltz_jax.models.diffusion import diffusion_score_model_forward
+from boltz_jax.models.diffusion import (
+    conditioned_diffusion_score_forward,
+    diffusion_score_model_forward,
+)
+from boltz_jax.models.diffusion_conditioning import (
+    atom_encoder_forward,
+    diffusion_conditioning_forward,
+)
 from boltz_jax.models.diffusion_transformer import (
     conditioned_transition_block_forward,
     diffusion_transformer_layer_forward,
@@ -30,11 +37,14 @@ __all__ = [
     "attention_pair_bias_forward",
     "atom_attention_decoder_forward",
     "atom_attention_encoder_forward",
+    "atom_encoder_forward",
     "atom_transformer_forward",
     "conditioned_transition_block_forward",
+    "conditioned_diffusion_score_forward",
     "diffusion_transformer_forward",
     "diffusion_transformer_layer_forward",
     "diffusion_score_model_forward",
+    "diffusion_conditioning_forward",
     "get_indexing_matrix",
     "pairwise_conditioning_forward",
     "pairformer_layer_forward",

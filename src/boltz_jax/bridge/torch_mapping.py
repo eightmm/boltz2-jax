@@ -23,6 +23,10 @@ AtomTransformerParams = dict[str, DiffusionTransformerParams]
 AtomAttentionEncoderParams = dict[str, Any]
 AtomAttentionDecoderParams = dict[str, Any]
 DiffusionScoreModelParams = dict[str, Any]
+AtomEncoderParams = dict[str, Any]
+ProjectionListParams = list[dict[str, dict[str, jnp.ndarray]]]
+DiffusionConditioningParams = dict[str, Any]
+ConditionedDiffusionModelParams = dict[str, Any]
 
 
 def map_transition_state_dict(
@@ -379,6 +383,115 @@ def map_atom_attention_decoder_state_dict(
     }
 
 
+def map_atom_encoder_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str,
+) -> AtomEncoderParams:
+    """Map a Boltz AtomEncoder to a JAX pytree."""
+
+    required_keys = (
+        f"{prefix}.embed_atom_features.weight",
+        f"{prefix}.embed_atom_features.bias",
+        f"{prefix}.embed_atompair_ref_pos.weight",
+        f"{prefix}.embed_atompair_ref_dist.weight",
+        f"{prefix}.embed_atompair_mask.weight",
+        f"{prefix}.s_to_c_trans.0.weight",
+        f"{prefix}.s_to_c_trans.0.bias",
+        f"{prefix}.s_to_c_trans.1.weight",
+        f"{prefix}.z_to_p_trans.0.weight",
+        f"{prefix}.z_to_p_trans.0.bias",
+        f"{prefix}.z_to_p_trans.1.weight",
+        f"{prefix}.c_to_p_trans_k.1.weight",
+        f"{prefix}.c_to_p_trans_q.1.weight",
+        f"{prefix}.p_mlp.1.weight",
+        f"{prefix}.p_mlp.3.weight",
+        f"{prefix}.p_mlp.5.weight",
+    )
+    missing_keys = [key for key in required_keys if key not in state_dict]
+    if missing_keys:
+        missing = ", ".join(missing_keys)
+        msg = (
+            "Missing required AtomEncoder state_dict keys "
+            f"for prefix {prefix!r}: {missing}"
+        )
+        raise KeyError(msg)
+
+    return {
+        "embed_atom_features": {
+            "kernel": _linear_kernel(
+                state_dict[f"{prefix}.embed_atom_features.weight"]
+            ),
+            "bias": _to_jax_array(state_dict[f"{prefix}.embed_atom_features.bias"]),
+        },
+        "embed_atompair_ref_pos": {
+            "kernel": _linear_kernel(
+                state_dict[f"{prefix}.embed_atompair_ref_pos.weight"]
+            )
+        },
+        "embed_atompair_ref_dist": {
+            "kernel": _linear_kernel(
+                state_dict[f"{prefix}.embed_atompair_ref_dist.weight"]
+            )
+        },
+        "embed_atompair_mask": {
+            "kernel": _linear_kernel(
+                state_dict[f"{prefix}.embed_atompair_mask.weight"]
+            )
+        },
+        "s_to_c_trans": {
+            "norm": {
+                "scale": _to_jax_array(state_dict[f"{prefix}.s_to_c_trans.0.weight"]),
+                "bias": _to_jax_array(state_dict[f"{prefix}.s_to_c_trans.0.bias"]),
+            },
+            "linear": {
+                "kernel": _linear_kernel(state_dict[f"{prefix}.s_to_c_trans.1.weight"])
+            },
+        },
+        "z_to_p_trans": {
+            "norm": {
+                "scale": _to_jax_array(state_dict[f"{prefix}.z_to_p_trans.0.weight"]),
+                "bias": _to_jax_array(state_dict[f"{prefix}.z_to_p_trans.0.bias"]),
+            },
+            "linear": {
+                "kernel": _linear_kernel(state_dict[f"{prefix}.z_to_p_trans.1.weight"])
+            },
+        },
+        "c_to_p_trans_k": {
+            "kernel": _linear_kernel(state_dict[f"{prefix}.c_to_p_trans_k.1.weight"])
+        },
+        "c_to_p_trans_q": {
+            "kernel": _linear_kernel(state_dict[f"{prefix}.c_to_p_trans_q.1.weight"])
+        },
+        "p_mlp": [
+            {"kernel": _linear_kernel(state_dict[f"{prefix}.p_mlp.1.weight"])},
+            {"kernel": _linear_kernel(state_dict[f"{prefix}.p_mlp.3.weight"])},
+            {"kernel": _linear_kernel(state_dict[f"{prefix}.p_mlp.5.weight"])},
+        ],
+    }
+
+
+def map_projection_list_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str,
+    num_layers: int | None = None,
+) -> ProjectionListParams:
+    """Map a ModuleList of LayerNorm + LinearNoBias projections."""
+
+    indices = _module_list_indices(state_dict, prefix, num_layers)
+    return [
+        {
+            "norm": {
+                "scale": _to_jax_array(state_dict[f"{prefix}.{index}.0.weight"]),
+                "bias": _to_jax_array(state_dict[f"{prefix}.{index}.0.bias"]),
+            },
+            "linear": {
+                "kernel": _linear_kernel(state_dict[f"{prefix}.{index}.1.weight"])
+            },
+        }
+        for index in indices
+    ]
+
+
 def map_triangle_multiplication_state_dict(
     state_dict: Mapping[str, Any], prefix: str
 ) -> TriangleMultiplicationParams:
@@ -656,6 +769,7 @@ def map_diffusion_score_model_state_dict(
     state_dict: Mapping[str, Any],
     prefix: str,
     num_token_layers: int | None = None,
+    token_transformer_heads: int = 16,
 ) -> DiffusionScoreModelParams:
     """Map Boltz DiffusionModule score_model weights to a JAX pytree."""
 
@@ -694,7 +808,7 @@ def map_diffusion_score_model_state_dict(
         "token_transformer": map_diffusion_transformer_state_dict(
             state_dict,
             f"{prefix}.token_transformer",
-            num_heads=8,
+            num_heads=token_transformer_heads,
             num_layers=num_token_layers,
         ),
         "a_norm": {
@@ -703,6 +817,56 @@ def map_diffusion_score_model_state_dict(
         },
         "atom_attention_decoder": map_atom_attention_decoder_state_dict(
             state_dict, f"{prefix}.atom_attention_decoder"
+        ),
+    }
+
+
+def map_diffusion_conditioning_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str = "diffusion_conditioning",
+    num_token_layers: int | None = None,
+) -> DiffusionConditioningParams:
+    """Map Boltz DiffusionConditioning weights to a JAX pytree."""
+
+    return {
+        "pairwise_conditioner": map_pairwise_conditioning_state_dict(
+            state_dict, f"{prefix}.pairwise_conditioner"
+        ),
+        "atom_encoder": map_atom_encoder_state_dict(
+            state_dict, f"{prefix}.atom_encoder"
+        ),
+        "atom_enc_proj_z": map_projection_list_state_dict(
+            state_dict, f"{prefix}.atom_enc_proj_z"
+        ),
+        "atom_dec_proj_z": map_projection_list_state_dict(
+            state_dict, f"{prefix}.atom_dec_proj_z"
+        ),
+        "token_trans_proj_z": map_projection_list_state_dict(
+            state_dict, f"{prefix}.token_trans_proj_z", num_token_layers
+        ),
+    }
+
+
+def map_conditioned_diffusion_model_state_dict(
+    state_dict: Mapping[str, Any],
+    conditioning_prefix: str = "diffusion_conditioning",
+    score_prefix: str = "structure_module.score_model",
+    num_token_layers: int | None = None,
+    token_transformer_heads: int = 16,
+) -> ConditionedDiffusionModelParams:
+    """Map diffusion conditioning plus score model weights."""
+
+    return {
+        "diffusion_conditioning": map_diffusion_conditioning_state_dict(
+            state_dict,
+            conditioning_prefix,
+            num_token_layers=num_token_layers,
+        ),
+        "score_model": map_diffusion_score_model_state_dict(
+            state_dict,
+            score_prefix,
+            num_token_layers=num_token_layers,
+            token_transformer_heads=token_transformer_heads,
         ),
     }
 

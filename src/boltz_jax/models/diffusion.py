@@ -11,8 +11,11 @@ from boltz_jax.models.atom import (
     atom_attention_decoder_forward,
     atom_attention_encoder_forward,
     diffusion_transformer_forward,
+    get_indexing_matrix,
+    single_to_keys,
 )
 from boltz_jax.models.conditioning import single_conditioning_forward
+from boltz_jax.models.diffusion_conditioning import diffusion_conditioning_forward
 
 Params = Mapping[str, object]
 
@@ -82,6 +85,60 @@ def diffusion_score_model_forward(
         atom_dec_bias=diffusion_conditioning["atom_dec_bias"].astype(jnp.float32),
         feats=feats,
         to_keys=diffusion_conditioning["to_keys"],
+        multiplicity=multiplicity,
+        eps=eps,
+    )
+
+
+def conditioned_diffusion_score_forward(
+    params: Params,
+    s_inputs: jnp.ndarray,
+    s_trunk: jnp.ndarray,
+    z_trunk: jnp.ndarray,
+    relative_position_encoding: jnp.ndarray,
+    r_noisy: jnp.ndarray,
+    times: jnp.ndarray,
+    feats: Mapping[str, jnp.ndarray],
+    token_layers: int | None = None,
+    multiplicity: int = 1,
+    atoms_per_window_queries: int = 32,
+    atoms_per_window_keys: int = 128,
+    eps: float = 1e-5,
+) -> jnp.ndarray:
+    """Run diffusion conditioning and score model as one JAX graph."""
+
+    conditioning = diffusion_conditioning_forward(
+        params["diffusion_conditioning"],
+        s_trunk=s_trunk,
+        z_trunk=z_trunk,
+        relative_position_encoding=relative_position_encoding,
+        feats=feats,
+        token_layers=token_layers,
+        atoms_per_window_queries=atoms_per_window_queries,
+        atoms_per_window_keys=atoms_per_window_keys,
+        eps=eps,
+    )
+    atoms = feats["ref_pos"].shape[1]
+    num_windows = atoms // atoms_per_window_queries
+    indexing = get_indexing_matrix(
+        k=num_windows,
+        w=atoms_per_window_queries,
+        h_keys=atoms_per_window_keys,
+    )
+    conditioning["to_keys"] = lambda x: single_to_keys(
+        x,
+        indexing,
+        w=atoms_per_window_queries,
+        h_keys=atoms_per_window_keys,
+    )
+    return diffusion_score_model_forward(
+        params["score_model"],
+        s_inputs=s_inputs,
+        s_trunk=s_trunk,
+        r_noisy=r_noisy,
+        times=times,
+        feats=feats,
+        diffusion_conditioning=conditioning,
         multiplicity=multiplicity,
         eps=eps,
     )

@@ -80,7 +80,27 @@ Implemented JAX parity for the precomputed-conditioning score path:
 
 CUDA smoke artifact:
 
-- `outputs/diffusion_score_cuda_tokens8_atoms64_layers24.json`
+- `outputs/diffusion_score_cuda_tokens8_atoms64_layers24_heads16.json`
 
-Current limitation: `DiffusionConditioning`, real feature preprocessing, MSA
-module, and sampling loop are not yet in the JAX graph.
+Current limitation: real feature preprocessing, MSA module, trunk orchestration,
+and sampling loop are not yet in the JAX graph.
+
+## 2026-06-16 Conditioned Score Graph
+
+Implemented checkpoint-backed JAX parity for `DiffusionConditioning` and
+connected it to the score model:
+
+- `PairwiseConditioning`
+- `AtomEncoder`
+- atom encoder/decoder bias projections
+- token transformer bias projections
+- `conditioned_diffusion_score_forward`
+
+CUDA smoke artifacts:
+
+- `outputs/diffusion_score_cuda_tokens8_atoms64_layers24_heads16.json`
+- `outputs/conditioned_diffusion_score_cuda_tokens8_atoms64_layers24.json`
+
+Current limitation: this still starts from trunk tensors and processed feature
+tensors. MSA, full trunk orchestration, and diffusion sampling are separate
+remaining graph segments.

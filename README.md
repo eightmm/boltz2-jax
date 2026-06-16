@@ -114,9 +114,13 @@ uv run python scripts/benchmark_diffusion_score.py \
   --token-layers 24 \
   --warmup 1 \
   --iters 3 \
-  --output outputs/diffusion_score_cuda_tokens8_atoms64_layers24.json
+  --output outputs/diffusion_score_cuda_tokens8_atoms64_layers24_heads16.json
 ```
 
 This compiles the score path from `SingleConditioning` through atom
 encoder/decoder and the full token transformer stack. It still assumes
 diffusion conditioning tensors are already prepared.
+
+The conditioning path is also available through
+`conditioned_diffusion_score_forward`, which connects `DiffusionConditioning`
+to the score model in one JAX function.

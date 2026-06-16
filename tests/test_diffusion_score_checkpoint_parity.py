@@ -35,6 +35,7 @@ def test_checkpoint_diffusion_score_model_matches_boltz_torch(
         checkpoint_state,
         PREFIX,
         num_token_layers=token_layers,
+        token_transformer_heads=16,
     )
     inputs = _score_inputs(token_layers)
     torch_to_keys_fn, jax_to_keys_fn = _to_keys_fns()
@@ -123,7 +124,7 @@ def _load_torch_diffusion_module(
                 dim=768,
                 dim_single_cond=768,
                 depth=token_layers,
-                heads=8,
+                heads=16,
             )
             self.a_norm = torch.nn.LayerNorm(768)
             self.atom_attention_decoder = AtomAttentionDecoder(
@@ -242,8 +243,8 @@ def _score_inputs(token_layers: int) -> dict[str, object]:
             1, 2, 32, 128, 12
         ),
         "token_trans_bias": torch.linspace(
-            -0.05, 0.05, steps=tokens * tokens * token_layers * 8
-        ).reshape(1, tokens, tokens, token_layers * 8),
+            -0.05, 0.05, steps=tokens * tokens * token_layers * 16
+        ).reshape(1, tokens, tokens, token_layers * 16),
     }
 
 

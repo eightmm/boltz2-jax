@@ -55,6 +55,7 @@ def main() -> None:
         state_cpu,
         PREFIX,
         num_token_layers=args.token_layers,
+        token_transformer_heads=16,
     )
     inputs = _make_inputs(args.tokens, args.atoms, args.token_layers)
     torch_inputs = _tree_to_torch(inputs, torch_device)
@@ -162,7 +163,7 @@ class _ScoreModel(torch.nn.Module):
             dim=768,
             dim_single_cond=768,
             depth=token_layers,
-            heads=8,
+            heads=16,
         )
         self.a_norm = torch.nn.LayerNorm(768)
         self.atom_attention_decoder = AtomAttentionDecoder(128, 384, 32, 128)
@@ -274,9 +275,9 @@ def _make_inputs(tokens: int, atoms: int, token_layers: int) -> dict[str, Any]:
         "token_trans_bias": np.linspace(
             -0.05,
             0.05,
-            num=tokens * tokens * token_layers * 8,
+            num=tokens * tokens * token_layers * 16,
             dtype=np.float32,
-        ).reshape(1, tokens, tokens, token_layers * 8),
+        ).reshape(1, tokens, tokens, token_layers * 16),
     }
 
 
