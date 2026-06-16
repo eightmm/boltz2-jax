@@ -36,6 +36,7 @@ def main() -> None:
     parser.add_argument("--tokens", type=int, default=16)
     parser.add_argument("--atoms", type=int, default=128)
     parser.add_argument("--msa-rows", type=int, default=8)
+    parser.add_argument("--features-pt", type=Path, default=None)
     parser.add_argument("--msa-layers", type=int, default=4)
     parser.add_argument("--pairformer-layers", type=int, default=64)
     parser.add_argument("--token-layers", type=int, default=24)
@@ -65,7 +66,14 @@ def main() -> None:
         num_token_layers=args.token_layers,
         token_transformer_heads=16,
     )
-    feats = _make_feats(args.tokens, args.atoms, args.msa_rows)
+    if args.features_pt is None:
+        feats = _make_feats(args.tokens, args.atoms, args.msa_rows)
+        record_id = None
+    else:
+        feats, record_id = _load_features_pt(args.features_pt)
+        args.tokens = int(feats["token_pad_mask"].shape[1])
+        args.atoms = int(feats["atom_pad_mask"].shape[1])
+        args.msa_rows = int(feats["msa"].shape[1])
     torch_feats = _tree_to_torch(feats, torch_device)
     jax_feats = _tree_to_jax(feats)
     r_noisy_np = np.linspace(0.15, -0.15, num=args.atoms * 3, dtype=np.float32)
@@ -102,6 +110,8 @@ def main() -> None:
 
     payload = {
         "checkpoint": str(args.checkpoint),
+        "features_pt": str(args.features_pt) if args.features_pt is not None else None,
+        "record_id": record_id,
         "tokens": args.tokens,
         "atoms": args.atoms,
         "msa_rows": args.msa_rows,
@@ -460,6 +470,17 @@ def _make_feats(tokens: int, atoms: int, msa_rows: int) -> dict[str, np.ndarray]
         "msa_mask": np.ones((1, msa_rows, tokens), dtype=np.float32),
         "token_pad_mask": np.ones((1, tokens), dtype=np.float32),
     }
+
+
+def _load_features_pt(path: Path) -> tuple[dict[str, np.ndarray], str | None]:
+    obj = torch.load(path, map_location="cpu", weights_only=False)
+    record_id = obj.get("_record_id")
+    feats = {}
+    for key, value in obj.items():
+        if key.startswith("_") or not torch.is_tensor(value):
+            continue
+        feats[key] = value.detach().cpu().numpy()
+    return feats, record_id
 
 
 def _tree_to_torch(tree: dict[str, np.ndarray], device: str) -> dict[str, torch.Tensor]:
