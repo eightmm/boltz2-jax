@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boltz-jax"
+version = "0.1.0"
+description = "Experimental JAX inference engine for Boltz-2"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "chex>=0.1.86",
+    "einops>=0.8.0",
+    "jax>=0.7.1",
+    "jaxtyping>=0.2.34",
+    "numpy>=2.0",
+    "pyyaml>=6.0.2",
+    "tqdm>=4.66.0",
+]
+
+[project.optional-dependencies]
+cuda12 = ["jax[cuda12]>=0.7.1"]
+cuda13 = ["jax[cuda13]>=0.7.1"]
+dev = ["pytest>=8.0.0", "ruff>=0.6.0"]
+torch-bridge = ["torch>=2.2", "pytorch-lightning>=2.5.0"]
+
+[project.scripts]
+boltz-jax-inspect-checkpoint = "boltz_jax.bridge.torch_checkpoint:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

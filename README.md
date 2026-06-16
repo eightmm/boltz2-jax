@@ -1,0 +1,62 @@
+# boltz_jax
+
+Experimental JAX inference engine for Boltz-2.
+
+This project is separate from the canonical PyTorch/TensorRT path in
+`../boltz`. The first goal is to test whether JAX/XLA can reduce peak VRAM for
+static-shape Boltz-2 structure inference. Latency is secondary until numerical
+parity and memory behavior are measured.
+
+## Scope
+
+- Port inference only.
+- Start with static/precomputed inputs.
+- Keep PyTorch Boltz checkpoints as the source of truth.
+- Compare against the existing PyTorch baseline and crystal structures.
+- Exclude MSA server time and file writer time from benchmark regions.
+
+## Non-goals
+
+- No training path.
+- No checkpoint format change.
+- No replacement of the existing `boltz_fast` path until measured.
+- No confidence module until the structure path is validated.
+
+## Initial Milestones
+
+1. Inspect PyTorch checkpoint key/shape layout.
+2. Define JAX pytree parameter layout.
+3. Port small pure tensor/geometry utilities.
+4. Port one Pairformer block and compare tensor outputs.
+5. Port one diffusion score block and compare tensor outputs.
+6. Build static-shape VRAM and latency benchmark.
+7. Expand to full structure inference only if the block probes pass.
+
+## Commands
+
+```bash
+cd /home/jaemin/non-project/optimizing/boltz_jax
+uv sync --extra dev
+```
+
+Inspect a Boltz checkpoint:
+
+```bash
+uv run --extra torch-bridge boltz-jax-inspect-checkpoint \
+  --checkpoint ../boltz/.cache/boltz/boltz2_conf.ckpt \
+  --limit 40
+```
+
+For CUDA JAX, use the optional CUDA extra in a separate environment after
+checking local driver/toolkit compatibility. CUDA 13 is the first candidate on
+this workstation because the existing PyTorch environment is cu13-based:
+
+```bash
+uv sync --extra cuda13 --extra dev --extra torch-bridge
+```
+
+CUDA 12 is also available as an explicit extra for fallback testing:
+
+```bash
+uv sync --extra cuda12 --extra dev --extra torch-bridge
+```
