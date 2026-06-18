@@ -170,11 +170,11 @@ def pair_weighted_averaging_forward(
     v = jnp.transpose(v, (0, 3, 1, 2, 4))
     b = _linear(z, params["proj_z"]["kernel"])
     b = jnp.transpose(b, (0, 3, 1, 2))
-    mask = mask.astype(b.dtype)
-    one = jnp.asarray(1.0, dtype=b.dtype)
-    neg_inf = jnp.asarray(-inf, dtype=b.dtype)
-    b = b + (one - mask[:, None]) * neg_inf
-    w = jax.nn.softmax(b.astype(jnp.float32), axis=-1).astype(v.dtype)
+    # Mask + softmax in fp32 so the `inf` constant stays finite (in fp16 it would
+    # saturate to inf -> fully-masked rows give NaN). fp32 runtime is unchanged.
+    mask = mask.astype(jnp.float32)
+    b = b.astype(jnp.float32) + (1.0 - mask[:, None]) * (-inf)
+    w = jax.nn.softmax(b, axis=-1).astype(v.dtype)
     g = jax.nn.sigmoid(_linear(m, params["proj_g"]["kernel"]))
     o = jnp.einsum("bhij,bhsjd->bhsid", w, v)
     o = jnp.transpose(o, (0, 2, 3, 1, 4))

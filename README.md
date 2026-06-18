@@ -114,7 +114,7 @@ fp32 XLA path.
 
 | Knob | Options | Notes |
 |------|---------|-------|
-| `compute_dtype` | `float32` / `float16` / `bfloat16` | fp16 lowest drift on this model |
+| `compute_dtype` | `float32` / `bfloat16` | use **bf16** for low precision (fp32 range); fp16 is range-unstable in the diffusion sampler |
 | `matmul_precision` | `highest` / `default` | `default` = TF32 (GPU) |
 | `attention_backend` | `xla` / `flash` | `flash` = tokamax token attention |
 | `triangle_backend` | `xla` / `tokamax` / `pallas` | tokamax Triton wins at long N on supported GPUs |
@@ -126,11 +126,17 @@ Blackwell (sm120); the Triton path is the fast option there.
 
 ### Known limitations
 
-- Per-module fp16 parity (triangle attention / GLU) is verified, but the **fully
-  combined fp16 + tokamax end-to-end sampler currently produces non-finite
-  output** — the fp16 additive mask constants saturate to inf and need an
-  fp16-safe `-inf` plus fp32 softmax islands. Until fixed, run fp16 with the XLA
-  backends, or run tokamax in bf16/fp32. The default fp32/XLA path is bit-exact.
+- **Low precision: use bf16, not fp16.** bf16 + XLA is e2e-stable (aligned RMSD
+  vs fp32 ≈ 0.26 A on 1UBQ); fp16 overflows the diffusion sampler's dynamic
+  range over a trajectory (coordinates / EDM sigma exceed fp16's ~65504) and
+  diverges. Keep `alignment_reverse_diff=True` (default in the bench path) — it
+  anchors the trajectory and is what keeps low-precision drift small.
+- **tokamax kernels are per-module fast and numerically correct, but the full
+  sampler with tokamax backends is gated by autotuning cost** — tokamax Triton
+  autotunes hundreds of distinct attention shapes (CPU-side) on a fresh run,
+  which can stall a full sample. A persistent autotuning cache is needed before
+  the tokamax e2e path is practical. Per-module benchmarks show the speed/memory
+  win; the default XLA path is bit-exact and always available.
 - Data pipeline covers the protein path with `msa: empty`; ligands, templates,
   and MSA-server search are not yet ported.
 

@@ -101,7 +101,10 @@ def triangle_attention_forward(
         eps,
     )
     mask = mask[..., :, None, None, :]
-    mask_bias = inf * (mask - 1.0)
+    # Build the additive mask in fp32 so the large `inf` constant stays finite:
+    # in fp16, `inf` (1e9) would saturate to +inf and a fully-masked softmax row
+    # would become 0/0 -> NaN. fp32 runtime is unchanged (mask already fp32).
+    mask_bias = inf * (mask.astype(jnp.float32) - 1.0)
 
     triangle_bias = _linear(x, params["linear"]["kernel"], precision)
     triangle_bias = jnp.transpose(triangle_bias, (0, 3, 1, 2))
