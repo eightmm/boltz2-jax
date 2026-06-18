@@ -7,7 +7,7 @@ import torch.nn.functional as functional
 
 from boltz_jax.bridge.torch_checkpoint import load_checkpoint_state_dict
 from boltz_jax.bridge.torch_mapping import map_transition_state_dict
-from boltz_jax.models.transition import transition_forward
+from boltz_jax.models.primitives.transition import transition_forward
 
 PREFIX = "msa_module.layers.0.msa_transition"
 CHECKPOINT = (

@@ -17,7 +17,7 @@ import torch
 
 from boltz_jax.bridge.torch_checkpoint import load_checkpoint_state_dict
 from boltz_jax.bridge.torch_mapping import map_boltz2_graph_state_dict
-from boltz_jax.models.trunk import boltz2_graph_score_forward
+from boltz_jax.models.trunk_blocks.trunk import boltz2_graph_score_forward
 
 BOLTZ_SRC = Path("../boltz/src")
 

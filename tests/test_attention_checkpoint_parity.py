@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -8,7 +9,7 @@ import torch.nn.functional as functional
 
 from boltz_jax.bridge.torch_checkpoint import load_checkpoint_state_dict
 from boltz_jax.bridge.torch_mapping import map_attention_pair_bias_state_dict
-from boltz_jax.models.attention import attention_pair_bias_forward
+from boltz_jax.models.primitives.attention import attention_pair_bias_forward
 
 PREFIX = "pairformer_module.layers.0.attention"
 CHECKPOINT = (
@@ -43,6 +44,37 @@ def test_checkpoint_attention_pair_bias_matches_torch(
         expected.detach().numpy(),
         rtol=2e-4,
         atol=2e-4,
+    )
+
+
+def test_checkpoint_attention_pair_bias_accepts_flash_backend(
+    attention_state: dict[str, torch.Tensor],
+) -> None:
+    inputs = _attention_inputs(attention_state)
+    params = map_attention_pair_bias_state_dict(attention_state, PREFIX)
+    s = jnp.asarray(inputs["s"].numpy())
+    z = jnp.asarray(inputs["z"].numpy())
+    mask = jnp.asarray(inputs["mask"].numpy())
+    k_in = jnp.asarray(inputs["k_in"].numpy())
+
+    expected = attention_pair_bias_forward(params, s, z, mask, k_in=k_in)
+    compiled = jax.jit(
+        lambda p, s_, z_, mask_, k_: attention_pair_bias_forward(
+            p,
+            s_,
+            z_,
+            mask_,
+            k_in=k_,
+            attention_backend="flash",
+        )
+    )
+    actual = compiled(params, s, z, mask, k_in)
+
+    np.testing.assert_allclose(
+        np.asarray(actual),
+        np.asarray(expected),
+        rtol=2e-3,
+        atol=2e-3,
     )
 
 

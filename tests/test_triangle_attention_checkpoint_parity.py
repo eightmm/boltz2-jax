@@ -8,7 +8,7 @@ import torch.nn.functional as functional
 
 from boltz_jax.bridge.torch_checkpoint import load_checkpoint_state_dict
 from boltz_jax.bridge.torch_mapping import map_triangle_attention_state_dict
-from boltz_jax.models.triangle_attention import triangle_attention_forward
+from boltz_jax.models.triangle.triangle_attention import triangle_attention_forward
 
 CHECKPOINT = (
     Path(__file__).resolve().parents[2] / "boltz/.cache/boltz/boltz2_conf.ckpt"

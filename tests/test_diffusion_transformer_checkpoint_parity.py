@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -8,7 +9,7 @@ import torch
 
 from boltz_jax.bridge.torch_checkpoint import load_checkpoint_state_dict
 from boltz_jax.bridge.torch_mapping import map_diffusion_transformer_layer_state_dict
-from boltz_jax.models.diffusion_transformer import diffusion_transformer_layer_forward
+from boltz_jax.models.diffusion.diffusion_transformer import diffusion_transformer_layer_forward
 
 CHECKPOINT = (
     Path(__file__).resolve().parents[2] / "boltz/.cache/boltz/boltz2_conf.ckpt"
@@ -57,6 +58,89 @@ def test_checkpoint_diffusion_transformer_layer_matches_boltz_torch(
         expected.detach().numpy(),
         rtol=2e-3,
         atol=2e-3,
+    )
+
+
+def test_checkpoint_diffusion_transformer_layer_accepts_flash_backend(
+    checkpoint_state: dict[str, torch.Tensor],
+) -> None:
+    params = map_diffusion_transformer_layer_state_dict(
+        checkpoint_state,
+        PREFIX,
+        num_heads=8,
+    )
+    a, s, bias, mask = _layer_inputs()
+    a_j = jnp.asarray(a.numpy())
+    s_j = jnp.asarray(s.numpy())
+    bias_j = jnp.asarray(bias.numpy())
+    mask_j = jnp.asarray(mask.numpy())
+
+    expected = diffusion_transformer_layer_forward(
+        params,
+        a_j,
+        s_j,
+        bias_j,
+        mask_j,
+        multiplicity=1,
+    )
+    compiled = jax.jit(
+        lambda p, a_, s_, bias_, mask_: diffusion_transformer_layer_forward(
+            p,
+            a_,
+            s_,
+            bias_,
+            mask_,
+            multiplicity=1,
+            attention_backend="flash",
+        )
+    )
+    actual = compiled(params, a_j, s_j, bias_j, mask_j)
+
+    np.testing.assert_allclose(
+        np.asarray(actual),
+        np.asarray(expected),
+        rtol=2e-3,
+        atol=2e-3,
+    )
+
+
+def test_checkpoint_diffusion_transformer_layer_chunk_matches_unchunked(
+    checkpoint_state: dict[str, torch.Tensor],
+) -> None:
+    params = map_diffusion_transformer_layer_state_dict(
+        checkpoint_state,
+        PREFIX,
+        num_heads=8,
+    )
+    a, s, bias, mask = _layer_inputs()
+    a_j = jnp.asarray(a.numpy())
+    s_j = jnp.asarray(s.numpy())
+    bias_j = jnp.asarray(bias.numpy())
+    mask_j = jnp.asarray(mask.numpy())
+
+    expected = diffusion_transformer_layer_forward(
+        params,
+        a_j,
+        s_j,
+        bias_j,
+        mask_j,
+        multiplicity=1,
+    )
+    actual = diffusion_transformer_layer_forward(
+        params,
+        a_j,
+        s_j,
+        bias_j,
+        mask_j,
+        multiplicity=1,
+        chunk_size=2,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(actual),
+        np.asarray(expected),
+        rtol=0,
+        atol=0,
     )
 
 

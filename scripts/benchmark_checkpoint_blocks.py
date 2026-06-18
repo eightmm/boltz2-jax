@@ -25,11 +25,11 @@ from boltz_jax.bridge.torch_mapping import (
     map_transition_state_dict,
     map_triangle_multiplication_state_dict,
 )
-from boltz_jax.models.attention import attention_pair_bias_forward
-from boltz_jax.models.conditioning import single_conditioning_forward
-from boltz_jax.models.diffusion_transformer import diffusion_transformer_layer_forward
-from boltz_jax.models.transition import transition_forward
-from boltz_jax.models.triangle import triangle_multiplication_forward
+from boltz_jax.models.primitives.attention import attention_pair_bias_forward
+from boltz_jax.models.trunk_blocks.conditioning import single_conditioning_forward
+from boltz_jax.models.diffusion.diffusion_transformer import diffusion_transformer_layer_forward
+from boltz_jax.models.primitives.transition import transition_forward
+from boltz_jax.models.triangle.triangle import triangle_multiplication_forward
 
 ATTENTION_PREFIX = "pairformer_module.layers.0.attention"
 TRI_OUT_PREFIX = "pairformer_module.layers.0.tri_mul_out"

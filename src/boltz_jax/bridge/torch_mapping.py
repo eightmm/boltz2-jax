@@ -452,9 +452,7 @@ def map_atom_encoder_state_dict(
             )
         },
         "embed_atompair_mask": {
-            "kernel": _linear_kernel(
-                state_dict[f"{prefix}.embed_atompair_mask.weight"]
-            )
+            "kernel": _linear_kernel(state_dict[f"{prefix}.embed_atompair_mask.weight"])
         },
         "c_to_p_trans_k": {
             "kernel": _linear_kernel(state_dict[f"{prefix}.c_to_p_trans_k.1.weight"])
@@ -718,9 +716,7 @@ def map_single_conditioning_state_dict(
                 "kernel": _linear_kernel(
                     state_dict[f"{prefix}.fourier_embed.proj.weight"]
                 ),
-                "bias": _to_jax_array(
-                    state_dict[f"{prefix}.fourier_embed.proj.bias"]
-                ),
+                "bias": _to_jax_array(state_dict[f"{prefix}.fourier_embed.proj.bias"]),
             }
         },
         "norm_fourier": {
@@ -1071,9 +1067,7 @@ def map_input_embedder_state_dict(
                 "scale": _to_jax_array(
                     state_dict[f"{prefix}.atom_enc_proj_z.0.weight"]
                 ),
-                "bias": _to_jax_array(
-                    state_dict[f"{prefix}.atom_enc_proj_z.0.bias"]
-                ),
+                "bias": _to_jax_array(state_dict[f"{prefix}.atom_enc_proj_z.0.bias"]),
             },
             "linear": {
                 "kernel": _linear_kernel(
@@ -1281,6 +1275,34 @@ def _module_list_indices(
         msg = f"No module list items found for prefix {prefix!r}"
         raise KeyError(msg)
     return indices
+
+
+def map_bfactor_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str = "bfactor_module",
+) -> dict[str, Any]:
+    """Map the Boltz-2 B-factor head weights."""
+
+    return {
+        "bfactor": {
+            "kernel": _linear_kernel(state_dict[f"{prefix}.bfactor.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.bfactor.bias"]),
+        }
+    }
+
+
+def map_distogram_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str = "distogram_module",
+) -> dict[str, Any]:
+    """Map the Boltz-2 distogram head weights."""
+
+    return {
+        "distogram": {
+            "kernel": _linear_kernel(state_dict[f"{prefix}.distogram.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.distogram.bias"]),
+        }
+    }
 
 
 def _linear_kernel(weight: Any) -> jnp.ndarray:

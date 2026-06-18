@@ -8,7 +8,7 @@ import torch
 
 from boltz_jax.bridge.torch_checkpoint import load_checkpoint_state_dict
 from boltz_jax.bridge.torch_mapping import map_input_embedder_state_dict
-from boltz_jax.models.input_embedder import input_embedder_forward
+from boltz_jax.models.trunk_blocks.input_embedder import input_embedder_forward
 
 CHECKPOINT = (
     Path(__file__).resolve().parents[2] / "boltz/.cache/boltz/boltz2_conf.ckpt"

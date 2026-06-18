@@ -1,0 +1,446 @@
+"""Pure JAX Boltz-2 ConfidenceModule forward.
+
+Mirrors ``boltz.model.modules.confidencev2.ConfidenceModule`` /
+``ConfidenceHeads`` for the ``boltz2_conf.ckpt`` configuration:
+``add_s_to_z_prod``, ``add_s_input_to_s``, ``add_z_input_to_z``,
+``bond_type_feature``, ``no_update_s=False``, ``token_level_confidence=True``,
+``use_separate_heads=True``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+import jax
+import jax.numpy as jnp
+
+from boltz_jax.models.diffusion.atom import (
+    gather_rep_atoms_to_tokens,
+    gather_tokens_to_atoms,
+)
+from boltz_jax.models.trunk_blocks.pairformer import pairformer_module_forward
+from boltz_jax.models.trunk_blocks.trunk import (
+    contact_conditioning_forward,
+    relative_position_forward,
+)
+
+Params = Mapping[str, Any]
+
+# const.chain_type_ids
+_NONPOLYMER = 3
+_PROTEIN = 0
+
+
+def _linear(x: jnp.ndarray, kernel: jnp.ndarray) -> jnp.ndarray:
+    return x @ kernel
+
+
+def _layer_norm(
+    x: jnp.ndarray, scale: jnp.ndarray, bias: jnp.ndarray, eps: float
+) -> jnp.ndarray:
+    x = x.astype(jnp.float32)
+    mean = jnp.mean(x, axis=-1, keepdims=True)
+    var = jnp.mean(jnp.square(x - mean), axis=-1, keepdims=True)
+    return (x - mean) * jax.lax.rsqrt(var + eps) * scale + bias
+
+
+def _cdist(a: jnp.ndarray, b: jnp.ndarray) -> jnp.ndarray:
+    a2 = jnp.sum(a * a, axis=-1, keepdims=True)
+    b2 = jnp.sum(b * b, axis=-1, keepdims=True)
+    d2 = a2 + jnp.swapaxes(b2, -1, -2) - 2.0 * (a @ jnp.swapaxes(b, -1, -2))
+    return jnp.sqrt(jnp.maximum(d2, 0.0))
+
+
+def compute_aggregated_metric(logits: jnp.ndarray, end: float = 1.0) -> jnp.ndarray:
+    num_bins = logits.shape[-1]
+    bin_width = end / num_bins
+    bounds = jnp.arange(0.5 * bin_width, end, bin_width)
+    probs = jax.nn.softmax(logits, axis=-1)
+    shape = (1,) * (probs.ndim - 1) + bounds.shape
+    return jnp.sum(probs * bounds.reshape(shape), axis=-1)
+
+
+def _tm_function(d: jnp.ndarray, n_res: jnp.ndarray) -> jnp.ndarray:
+    d0 = 1.24 * (jnp.clip(n_res, 19, None) - 15) ** (1 / 3) - 1.8
+    return 1.0 / (1.0 + (d / d0) ** 2)
+
+
+def confidence_module_forward(
+    params: Params,
+    s_inputs: jnp.ndarray,  # b n ts
+    s: jnp.ndarray,  # b n ts
+    z: jnp.ndarray,  # b n n tz
+    x_pred: jnp.ndarray,  # bm m 3
+    feats: Mapping[str, jnp.ndarray],
+    pred_distogram_logits: jnp.ndarray,
+    *,
+    multiplicity: int = 1,
+    cyclic_pos_enc: bool = False,
+    fix_sym_check: bool = False,
+    eps: float = 1e-5,
+    triangle_backend: str = "xla",
+) -> dict[str, Any]:
+    """Run ConfidenceModule (real boltz2_conf config) in eval mode."""
+
+    s_inputs = _layer_norm(
+        s_inputs,
+        params["s_inputs_norm"]["scale"],
+        params["s_inputs_norm"]["bias"],
+        eps,
+    )
+    # no_update_s=False
+    s = _layer_norm(s, params["s_norm"]["scale"], params["s_norm"]["bias"], eps)
+
+    # add_s_input_to_s=True
+    s = s + _linear(s_inputs, params["s_input_to_s"]["kernel"])
+
+    z = _layer_norm(z, params["z_norm"]["scale"], params["z_norm"]["bias"], eps)
+
+    # add_z_input_to_z=True
+    z = z + relative_position_forward(
+        params["rel_pos"],
+        feats,
+        cyclic_pos_enc=cyclic_pos_enc,
+        fix_sym_check=fix_sym_check,
+    )
+    z = z + _linear(
+        feats["token_bonds"].astype(jnp.float32), params["token_bonds"]["kernel"]
+    )
+    # bond_type_feature=True
+    z = z + params["token_bonds_type"][feats["type_bonds"].astype(jnp.int32)]
+    z = z + contact_conditioning_forward(params["contact_conditioning"], feats)
+
+    s = jnp.repeat(s, multiplicity, axis=0)
+
+    z = (
+        z
+        + _linear(s_inputs, params["s_to_z"]["kernel"])[:, :, None, :]
+        + _linear(s_inputs, params["s_to_z_transpose"]["kernel"])[:, None, :, :]
+    )
+    # add_s_to_z_prod=True
+    z = z + _linear(
+        _linear(s_inputs, params["s_to_z_prod_in1"]["kernel"])[:, :, None, :]
+        * _linear(s_inputs, params["s_to_z_prod_in2"]["kernel"])[:, None, :, :],
+        params["s_to_z_prod_out"]["kernel"],
+    )
+
+    z = jnp.repeat(z, multiplicity, axis=0)
+    s_inputs = jnp.repeat(s_inputs, multiplicity, axis=0)
+
+    token_to_rep_atom = jnp.repeat(
+        feats["token_to_rep_atom"].astype(jnp.float32), multiplicity, axis=0
+    )
+    if x_pred.ndim == 4:
+        b, mult, n, _ = x_pred.shape
+        x_pred = x_pred.reshape(b * mult, n, -1)
+    x_pred_repr = gather_rep_atoms_to_tokens(token_to_rep_atom, x_pred)
+    d = _cdist(x_pred_repr, x_pred_repr)
+    boundaries = params["boundaries"]
+    distogram = jnp.sum(d[..., None] > boundaries, axis=-1).astype(jnp.int32)
+    distogram = params["dist_bin_pairwise_embed"][distogram]
+    z = z + distogram
+
+    mask = jnp.repeat(feats["token_pad_mask"].astype(jnp.float32), multiplicity, axis=0)
+    pair_mask = mask[:, :, None] * mask[:, None, :]
+
+    s, z = pairformer_module_forward(
+        params["pairformer_stack"],
+        s,
+        z,
+        mask=mask,
+        pair_mask=pair_mask,
+        eps=eps,
+        triangle_backend=triangle_backend,
+    )
+
+    return _confidence_heads_forward(
+        params["confidence_heads"],
+        s=s,
+        z=z,
+        x_pred=x_pred,
+        d=d,
+        feats=feats,
+        pred_distogram_logits=pred_distogram_logits,
+        multiplicity=multiplicity,
+    )
+
+
+def _confidence_heads_forward(
+    params: Params,
+    *,
+    s: jnp.ndarray,
+    z: jnp.ndarray,
+    x_pred: jnp.ndarray,
+    d: jnp.ndarray,
+    feats: Mapping[str, jnp.ndarray],
+    pred_distogram_logits: jnp.ndarray,
+    multiplicity: int,
+) -> dict[str, Any]:
+    # use_separate_heads=True
+    asym_id_token = feats["asym_id"]
+    is_same_chain = asym_id_token[..., :, None] == asym_id_token[..., None, :]
+    is_different_chain_bool = ~is_same_chain
+
+    pae_intra = (
+        _linear(z, params["to_pae_intra_logits"]["kernel"])
+        * is_same_chain.astype(jnp.float32)[..., None]
+    )
+    pae_inter = (
+        _linear(z, params["to_pae_inter_logits"]["kernel"])
+        * is_different_chain_bool.astype(jnp.float32)[..., None]
+    )
+    pae_logits = pae_inter + pae_intra
+
+    z_sym = z + jnp.swapaxes(z, 1, 2)
+    pde_intra = (
+        _linear(z_sym, params["to_pde_intra_logits"]["kernel"])
+        * is_same_chain.astype(jnp.float32)[..., None]
+    )
+    pde_inter = (
+        _linear(z_sym, params["to_pde_inter_logits"]["kernel"])
+        * is_different_chain_bool.astype(jnp.float32)[..., None]
+    )
+    pde_logits = pde_inter + pde_intra
+
+    resolved_logits = _linear(s, params["to_resolved_logits"]["kernel"])
+    plddt_logits = _linear(s, params["to_plddt_logits"]["kernel"])
+
+    ligand_weight = 20.0
+    non_interface_weight = 1.0
+    interface_weight = 10.0
+
+    token_type = jnp.repeat(feats["mol_type"], multiplicity, axis=0)
+    is_ligand_token = (token_type == _NONPOLYMER).astype(jnp.float32)
+
+    # token_level_confidence=True
+    plddt = compute_aggregated_metric(plddt_logits)
+    token_pad_mask = jnp.repeat(
+        feats["token_pad_mask"].astype(jnp.float32), multiplicity, axis=0
+    )
+    complex_plddt = (plddt * token_pad_mask).sum(axis=-1) / token_pad_mask.sum(axis=-1)
+
+    is_contact = (d < 8).astype(jnp.float32)
+    is_different_chain = jnp.repeat(
+        (asym_id_token[..., :, None] != asym_id_token[..., None, :]).astype(
+            jnp.float32
+        ),
+        multiplicity,
+        axis=0,
+    )
+    token_interface_mask = jnp.max(
+        is_contact * is_different_chain * (1 - is_ligand_token)[..., None], axis=-1
+    )
+    token_non_interface_mask = (1 - token_interface_mask) * (1 - is_ligand_token)
+    iplddt_weight = (
+        is_ligand_token * ligand_weight
+        + token_interface_mask * interface_weight
+        + token_non_interface_mask * non_interface_weight
+    )
+    complex_iplddt = (plddt * token_pad_mask * iplddt_weight).sum(axis=-1) / jnp.sum(
+        token_pad_mask * iplddt_weight, axis=-1
+    )
+
+    pde = compute_aggregated_metric(pde_logits, end=32)
+    pred_distogram_prob = jnp.repeat(
+        jax.nn.softmax(pred_distogram_logits, axis=-1), multiplicity, axis=0
+    )
+    contacts = jnp.zeros((1, 1, 1, 64), dtype=pred_distogram_prob.dtype)
+    contacts = contacts.at[:, :, :, :20].set(1.0)
+    prob_contact = (pred_distogram_prob * contacts).sum(-1)
+    n_tok = token_pad_mask.shape[1]
+    token_pad_pair_mask = (
+        token_pad_mask[:, :, None]
+        * token_pad_mask[:, None, :]
+        * (1 - jnp.eye(n_tok)[None])
+    )
+    token_pair_mask = token_pad_pair_mask * prob_contact
+    complex_pde = (pde * token_pair_mask).sum(axis=(1, 2)) / token_pair_mask.sum(
+        axis=(1, 2)
+    )
+    asym_id = jnp.repeat(asym_id_token, multiplicity, axis=0)
+    token_interface_pair_mask = token_pair_mask * (
+        asym_id[:, :, None] != asym_id[:, None, :]
+    )
+    complex_ipde = (pde * token_interface_pair_mask).sum(axis=(1, 2)) / (
+        token_interface_pair_mask.sum(axis=(1, 2)) + 1e-5
+    )
+
+    out_dict: dict[str, Any] = dict(
+        pde_logits=pde_logits,
+        plddt_logits=plddt_logits,
+        resolved_logits=resolved_logits,
+        pde=pde,
+        plddt=plddt,
+        complex_plddt=complex_plddt,
+        complex_iplddt=complex_iplddt,
+        complex_pde=complex_pde,
+        complex_ipde=complex_ipde,
+    )
+    out_dict["pae_logits"] = pae_logits
+    out_dict["pae"] = compute_aggregated_metric(pae_logits, end=32)
+
+    ptm, iptm, ligand_iptm, protein_iptm, pair_chains_iptm = _compute_ptms(
+        pae_logits, x_pred, feats, multiplicity
+    )
+    out_dict["ptm"] = ptm
+    out_dict["iptm"] = iptm
+    out_dict["ligand_iptm"] = ligand_iptm
+    out_dict["protein_iptm"] = protein_iptm
+    out_dict["pair_chains_iptm"] = pair_chains_iptm
+    return out_dict
+
+
+def _compute_collinear_mask(v1: jnp.ndarray, v2: jnp.ndarray) -> jnp.ndarray:
+    norm1 = jnp.linalg.norm(v1, axis=1, keepdims=True)
+    norm2 = jnp.linalg.norm(v2, axis=1, keepdims=True)
+    v1 = v1 / (norm1 + 1e-6)
+    v2 = v2 / (norm2 + 1e-6)
+    mask_angle = jnp.abs(jnp.sum(v1 * v2, axis=1)) < 0.9063
+    mask_overlap1 = norm1.reshape(-1) > 1e-2
+    mask_overlap2 = norm2.reshape(-1) > 1e-2
+    return mask_angle & mask_overlap1 & mask_overlap2
+
+
+def _compute_frame_pred_inference(
+    pred_atom_coords: jnp.ndarray,
+    frames_idx_true: jnp.ndarray,
+    feats: Mapping[str, jnp.ndarray],
+    multiplicity: int,
+) -> jnp.ndarray:
+    """JAX port of compute_frame_pred (inference=True) returning the
+    collinear/pad mask. Non-polymer frame reassignment is performed eagerly in
+    numpy-style python (test inputs use polymer tokens so the reassignment loop
+    short-circuits; the general logic is mirrored)."""
+
+    asym_id_token = feats["asym_id"]
+    asym_id_atom = gather_tokens_to_atoms(
+        feats["atom_to_token"].astype(jnp.float32),
+        asym_id_token[..., None].astype(jnp.float32),
+    )[..., 0]
+
+    b, n, _ = pred_atom_coords.shape
+    pred_atom_coords = pred_atom_coords.reshape(b // multiplicity, multiplicity, -1, 3)
+    frames_idx_pred = jnp.reshape(
+        jnp.repeat(frames_idx_true, multiplicity, axis=0),
+        (b // multiplicity, multiplicity, -1, 3),
+    )
+
+    mol_type = feats["mol_type"]
+    token_pad_mask = feats["token_pad_mask"]
+    atom_pad_mask = feats["atom_pad_mask"]
+
+    frames_idx_pred = jnp.asarray(frames_idx_pred)
+    for i in range(b // multiplicity):
+        token_idx = 0
+        atom_idx = 0
+        for cid in jnp.unique(asym_id_token[i]).tolist():
+            mask_chain_token = (asym_id_token[i] == cid) * token_pad_mask[i]
+            mask_chain_atom = (asym_id_atom[i] == cid) * atom_pad_mask[i]
+            num_tokens = int(mask_chain_token.sum())
+            num_atoms = int(mask_chain_atom.sum())
+            if int(mol_type[i, token_idx]) != _NONPOLYMER or num_atoms < 3:
+                token_idx += num_tokens
+                atom_idx += num_atoms
+                continue
+            sel = mask_chain_atom.astype(bool)
+            coords = pred_atom_coords[i][:, sel]
+            dist_mat = jnp.sqrt(
+                jnp.maximum(
+                    ((coords[:, None, :, :] - coords[:, :, None, :]) ** 2).sum(-1), 0.0
+                )
+            )
+            resolved_pair = 1 - (
+                atom_pad_mask[i][sel][None, :] * atom_pad_mask[i][sel][:, None]
+            ).astype(jnp.float32)
+            resolved_pair = jnp.where(resolved_pair == 1, jnp.inf, resolved_pair)
+            indices = jnp.argsort(dist_mat + resolved_pair, axis=2)
+            frames = (
+                jnp.concatenate(
+                    [indices[:, :, 1:2], indices[:, :, 0:1], indices[:, :, 2:3]], axis=2
+                )
+                + atom_idx
+            )
+            frames_idx_pred = frames_idx_pred.at[
+                i, :, token_idx : token_idx + num_atoms, :
+            ].set(frames)
+            token_idx += num_tokens
+            atom_idx += num_atoms
+
+    bm = b // multiplicity
+    idx_b = jnp.arange(bm)[:, None, None, None]
+    idx_m = jnp.arange(multiplicity)[None, :, None, None]
+    frames_expanded = pred_atom_coords[idx_b, idx_m, frames_idx_pred].reshape(-1, 3, 3)
+    mask_collinear = _compute_collinear_mask(
+        frames_expanded[:, 1] - frames_expanded[:, 0],
+        frames_expanded[:, 1] - frames_expanded[:, 2],
+    ).reshape(bm, multiplicity, -1)
+    return mask_collinear.astype(jnp.float32) * token_pad_mask[:, None, :]
+
+
+def _compute_ptms(
+    logits: jnp.ndarray,
+    x_preds: jnp.ndarray,
+    feats: Mapping[str, jnp.ndarray],
+    multiplicity: int,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, dict]:
+    mask_collinear_pred = _compute_frame_pred_inference(
+        x_preds, feats["frames_idx"], feats, multiplicity
+    )
+    mask_pad = jnp.repeat(
+        feats["token_pad_mask"].astype(jnp.float32), multiplicity, axis=0
+    )
+    maski = mask_collinear_pred.reshape(-1, mask_collinear_pred.shape[-1])
+    pair_mask_ptm = maski[:, :, None] * mask_pad[:, None, :] * mask_pad[:, :, None]
+    asym_id = jnp.repeat(feats["asym_id"], multiplicity, axis=0)
+    diff_chain = (asym_id[:, None, :] != asym_id[:, :, None]).astype(jnp.float32)
+    pair_mask_iptm = (
+        maski[:, :, None] * diff_chain * mask_pad[:, None, :] * mask_pad[:, :, None]
+    )
+
+    num_bins = logits.shape[-1]
+    bin_width = 32.0 / num_bins
+    pae_value = jnp.arange(0.5 * bin_width, 32.0, bin_width)[None, :]
+    n_res = mask_pad.sum(axis=-1, keepdims=True)
+    tm_value = _tm_function(pae_value, n_res)[:, None, None, :]
+    probs = jax.nn.softmax(logits, axis=-1)
+    tm_expected_value = jnp.sum(probs * tm_value, axis=-1)
+
+    def _agg(mask: jnp.ndarray) -> jnp.ndarray:
+        return jnp.max(
+            jnp.sum(tm_expected_value * mask, axis=-1)
+            / (jnp.sum(mask, axis=-1) + 1e-5),
+            axis=1,
+        )
+
+    ptm = _agg(pair_mask_ptm)
+    iptm = _agg(pair_mask_iptm)
+
+    token_type = jnp.repeat(feats["mol_type"], multiplicity, axis=0)
+    is_ligand = (token_type == _NONPOLYMER).astype(jnp.float32)
+    is_protein = (token_type == _PROTEIN).astype(jnp.float32)
+    base = maski[:, :, None] * diff_chain * mask_pad[:, None, :] * mask_pad[:, :, None]
+    ligand_mask = base * (
+        is_ligand[:, :, None] * is_protein[:, None, :]
+        + is_protein[:, :, None] * is_ligand[:, None, :]
+    )
+    protein_mask = base * (is_protein[:, :, None] * is_protein[:, None, :])
+    ligand_iptm = _agg(ligand_mask)
+    protein_iptm = _agg(protein_mask)
+
+    chain_pair_iptm: dict[Any, dict[Any, jnp.ndarray]] = {}
+    asym_ids_list = jnp.unique(asym_id).tolist()
+    for idx1 in asym_ids_list:
+        chain_iptm: dict[Any, jnp.ndarray] = {}
+        for idx2 in asym_ids_list:
+            m = (
+                maski[:, :, None]
+                * (asym_id[:, None, :] == idx1)
+                * (asym_id[:, :, None] == idx2)
+                * mask_pad[:, None, :]
+                * mask_pad[:, :, None]
+            )
+            chain_iptm[idx2] = _agg(m)
+        chain_pair_iptm[idx1] = chain_iptm
+
+    return ptm, iptm, ligand_iptm, protein_iptm, chain_pair_iptm

@@ -8,7 +8,7 @@ import torch
 
 from boltz_jax.bridge.torch_checkpoint import load_checkpoint_state_dict
 from boltz_jax.bridge.torch_mapping import map_msa_module_state_dict
-from boltz_jax.models.msa import msa_module_forward
+from boltz_jax.models.trunk_blocks.msa import msa_module_forward, pair_weighted_averaging_forward
 
 CHECKPOINT = (
     Path(__file__).resolve().parents[2] / "boltz/.cache/boltz/boltz2_conf.ckpt"
@@ -47,6 +47,30 @@ def test_checkpoint_msa_module_matches_boltz_torch(
         rtol=2e-3,
         atol=2e-3,
     )
+
+
+def test_pair_weighted_averaging_preserves_bfloat16_activation_dtype() -> None:
+    rng = np.random.default_rng(0)
+    c_m, c_z, heads, c_h = 8, 12, 4, 3
+
+    def w(*shape):
+        return jnp.asarray(rng.standard_normal(shape) * 0.1, dtype=jnp.bfloat16)
+
+    params = {
+        "norm_m": {"scale": w(c_m), "bias": w(c_m)},
+        "norm_z": {"scale": w(c_z), "bias": w(c_z)},
+        "proj_m": {"kernel": w(c_m, heads * c_h)},
+        "proj_z": {"kernel": w(c_z, heads)},
+        "proj_g": {"kernel": w(c_m, heads * c_h)},
+        "proj_o": {"kernel": w(heads * c_h, c_m)},
+    }
+    m = jnp.asarray(rng.standard_normal((1, 2, 5, c_m)), dtype=jnp.bfloat16)
+    z = jnp.asarray(rng.standard_normal((1, 5, 5, c_z)), dtype=jnp.bfloat16)
+    mask = jnp.ones((1, 5, 5), dtype=jnp.bfloat16)
+
+    out = pair_weighted_averaging_forward(params, m, z, mask)
+
+    assert out.dtype == jnp.bfloat16
 
 
 def _load_torch_msa_module(

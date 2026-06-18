@@ -18,8 +18,8 @@ import torch
 
 from boltz_jax.bridge.torch_checkpoint import load_checkpoint_state_dict
 from boltz_jax.bridge.torch_mapping import map_diffusion_score_model_state_dict
-from boltz_jax.models.atom import get_indexing_matrix, single_to_keys
-from boltz_jax.models.diffusion import diffusion_score_model_forward
+from boltz_jax.models.diffusion.atom import get_indexing_matrix, single_to_keys
+from boltz_jax.models.diffusion.diffusion import diffusion_score_model_forward
 
 PREFIX = "structure_module.score_model"
 BOLTZ_SRC = Path("../boltz/src")

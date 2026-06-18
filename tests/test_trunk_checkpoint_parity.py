@@ -12,10 +12,13 @@ from boltz_jax.bridge.torch_mapping import (
     map_boltz2_graph_state_dict,
     map_boltz2_trunk_state_dict,
 )
-from boltz_jax.models.trunk import (
+from boltz_jax.models.trunk_blocks.trunk import (
     boltz2_graph_score_forward,
     boltz2_sample_forward,
     boltz2_trunk_forward,
+    contact_conditioning_forward,
+    relative_position_forward,
+    resolve_long_sequence_chunks,
 )
 
 CHECKPOINT = (
@@ -29,6 +32,104 @@ def checkpoint_state() -> dict[str, torch.Tensor]:
     if not CHECKPOINT.exists():
         pytest.skip(f"Boltz-2 checkpoint not found: {CHECKPOINT}")
     return load_checkpoint_state_dict(CHECKPOINT)
+
+
+def test_relative_position_forward_matches_one_hot_reference() -> None:
+    r_max = 2
+    s_max = 1
+    out_dim = 7
+    rng = np.random.default_rng(0)
+    kernel = rng.standard_normal((2 * (2 * r_max + 2) + 1 + 2 * s_max + 2, out_dim))
+    params = {"linear_layer": {"kernel": jnp.asarray(kernel, dtype=jnp.float32)}}
+    feats = {
+        "asym_id": jnp.asarray([[0, 0, 1, 1]], dtype=jnp.int32),
+        "residue_index": jnp.asarray([[0, 1, 0, 1]], dtype=jnp.int32),
+        "entity_id": jnp.asarray([[0, 0, 1, 1]], dtype=jnp.int32),
+        "token_index": jnp.asarray([[0, 1, 2, 3]], dtype=jnp.int32),
+        "sym_id": jnp.asarray([[0, 1, 0, 1]], dtype=jnp.int32),
+        "cyclic_period": jnp.zeros((1, 4), dtype=jnp.float32),
+    }
+
+    actual = relative_position_forward(params, feats, r_max=r_max, s_max=s_max)
+    expected = _relative_position_one_hot_reference(
+        params, feats, r_max=r_max, s_max=s_max
+    )
+    np.testing.assert_array_equal(np.asarray(actual), np.asarray(expected))
+
+
+def test_contact_conditioning_preserves_bfloat16_param_dtype() -> None:
+    rng = np.random.default_rng(0)
+
+    def w(*shape):
+        return jnp.asarray(rng.standard_normal(shape) * 0.1, dtype=jnp.bfloat16)
+
+    params = {
+        "fourier_embedding": {
+            "proj": {"kernel": w(1, 4), "bias": w(4)},
+        },
+        "encoder": {"kernel": w(8, 8), "bias": w(8)},
+        "encoding_unspecified": w(8),
+        "encoding_unselected": w(8),
+    }
+    feats = {
+        "contact_conditioning": jnp.zeros((1, 5, 5, 5), dtype=jnp.bfloat16),
+        "contact_threshold": jnp.full((1, 5, 5), 8.0, dtype=jnp.bfloat16),
+    }
+
+    out = contact_conditioning_forward(params, feats)
+
+    assert out.dtype == jnp.bfloat16
+
+
+def test_resolve_long_sequence_chunks_keeps_short_defaults() -> None:
+    chunks = resolve_long_sequence_chunks(
+        1024,
+        chunk_size=128,
+        triangle_attention_chunk=None,
+        triangle_attention_q_chunk=None,
+        token_attention_chunk=None,
+    )
+
+    assert chunks == {
+        "chunk_size": 128,
+        "triangle_attention_chunk": 128,
+        "triangle_attention_q_chunk": None,
+        "token_attention_chunk": None,
+    }
+
+
+def test_resolve_long_sequence_chunks_caps_3072_defaults() -> None:
+    chunks = resolve_long_sequence_chunks(
+        3072,
+        chunk_size=128,
+        triangle_attention_chunk=None,
+        triangle_attention_q_chunk=None,
+        token_attention_chunk=None,
+    )
+
+    assert chunks == {
+        "chunk_size": 64,
+        "triangle_attention_chunk": 16,
+        "triangle_attention_q_chunk": 256,
+        "token_attention_chunk": 64,
+    }
+
+
+def test_resolve_long_sequence_chunks_preserves_explicit_overrides() -> None:
+    chunks = resolve_long_sequence_chunks(
+        3072,
+        chunk_size=32,
+        triangle_attention_chunk=8,
+        triangle_attention_q_chunk=128,
+        token_attention_chunk=32,
+    )
+
+    assert chunks == {
+        "chunk_size": 32,
+        "triangle_attention_chunk": 8,
+        "triangle_attention_q_chunk": 128,
+        "token_attention_chunk": 32,
+    }
 
 
 def test_checkpoint_boltz2_trunk_matches_boltz_torch(
@@ -105,6 +206,124 @@ def test_checkpoint_boltz2_graph_score_jits(
         recycling_steps=0,
         token_layers=1,
         multiplicity=1,
+    )
+    assert actual.shape == (1, 64, 3)
+    assert bool(jnp.all(jnp.isfinite(actual)))
+
+
+def test_checkpoint_boltz2_graph_score_jits_with_token_attention_chunk(
+    checkpoint_state: dict[str, torch.Tensor],
+) -> None:
+    params = map_boltz2_graph_state_dict(
+        checkpoint_state,
+        num_msa_layers=1,
+        num_pairformer_layers=1,
+        num_token_layers=1,
+        token_transformer_heads=16,
+    )
+    feats = _jax_feats(_trunk_feats())
+    r_noisy = jnp.linspace(0.15, -0.15, num=64 * 3, dtype=jnp.float32).reshape(
+        1, 64, 3
+    )
+    times = jnp.asarray([0.17], dtype=jnp.float32)
+    compiled = jax.jit(
+        boltz2_graph_score_forward,
+        static_argnames=(
+            "recycling_steps",
+            "token_layers",
+            "multiplicity",
+            "token_attention_chunk",
+        ),
+    )
+    actual = compiled(
+        params,
+        feats,
+        r_noisy,
+        times,
+        recycling_steps=0,
+        token_layers=1,
+        multiplicity=1,
+        token_attention_chunk=2,
+    )
+    assert actual.shape == (1, 64, 3)
+    assert bool(jnp.all(jnp.isfinite(actual)))
+
+
+def test_checkpoint_boltz2_graph_score_lazy_token_bias_matches_full(
+    checkpoint_state: dict[str, torch.Tensor],
+) -> None:
+    params = map_boltz2_graph_state_dict(
+        checkpoint_state,
+        num_msa_layers=1,
+        num_pairformer_layers=1,
+        num_token_layers=1,
+        token_transformer_heads=16,
+    )
+    feats = _jax_feats(_trunk_feats())
+    r_noisy = jnp.linspace(0.15, -0.15, num=64 * 3, dtype=jnp.float32).reshape(
+        1, 64, 3
+    )
+    times = jnp.asarray([0.17], dtype=jnp.float32)
+    common = dict(
+        recycling_steps=0,
+        token_layers=1,
+        multiplicity=1,
+        token_attention_chunk=2,
+    )
+
+    expected = boltz2_graph_score_forward(
+        params,
+        feats,
+        r_noisy,
+        times,
+        lazy_token_trans_bias=False,
+        **common,
+    )
+    actual = boltz2_graph_score_forward(
+        params,
+        feats,
+        r_noisy,
+        times,
+        lazy_token_trans_bias=True,
+        **common,
+    )
+
+    np.testing.assert_allclose(np.asarray(actual), np.asarray(expected), rtol=0, atol=0)
+
+
+def test_checkpoint_boltz2_graph_score_jits_with_flash_backend(
+    checkpoint_state: dict[str, torch.Tensor],
+) -> None:
+    params = map_boltz2_graph_state_dict(
+        checkpoint_state,
+        num_msa_layers=1,
+        num_pairformer_layers=1,
+        num_token_layers=1,
+        token_transformer_heads=16,
+    )
+    feats = _jax_feats(_trunk_feats())
+    r_noisy = jnp.linspace(0.15, -0.15, num=64 * 3, dtype=jnp.float32).reshape(
+        1, 64, 3
+    )
+    times = jnp.asarray([0.17], dtype=jnp.float32)
+    compiled = jax.jit(
+        boltz2_graph_score_forward,
+        static_argnames=(
+            "recycling_steps",
+            "token_layers",
+            "multiplicity",
+            "attention_backend",
+        ),
+    )
+    actual = compiled(
+        params,
+        feats,
+        r_noisy,
+        times,
+        recycling_steps=0,
+        token_layers=1,
+        multiplicity=1,
+        attention_backend="flash",
     )
     assert actual.shape == (1, 64, 3)
     assert bool(jnp.all(jnp.isfinite(actual)))
@@ -283,6 +502,52 @@ def _trunk_state(
                 continue
         module_state[key] = value
     return module_state
+
+
+def _relative_position_one_hot_reference(
+    params: dict,
+    feats: dict[str, jnp.ndarray],
+    *,
+    r_max: int,
+    s_max: int,
+) -> jnp.ndarray:
+    b_same_chain = feats["asym_id"][:, :, None] == feats["asym_id"][:, None, :]
+    b_same_residue = (
+        feats["residue_index"][:, :, None] == feats["residue_index"][:, None, :]
+    )
+    b_same_entity = feats["entity_id"][:, :, None] == feats["entity_id"][:, None, :]
+
+    d_residue = feats["residue_index"][:, :, None] - feats["residue_index"][:, None, :]
+    d_residue = jnp.clip(d_residue + r_max, 0, 2 * r_max).astype(jnp.int32)
+    d_residue = jnp.where(b_same_chain, d_residue, 2 * r_max + 1)
+    rel_pos = jax.nn.one_hot(d_residue, 2 * r_max + 2)
+
+    d_token = jnp.clip(
+        feats["token_index"][:, :, None] - feats["token_index"][:, None, :] + r_max,
+        0,
+        2 * r_max,
+    ).astype(jnp.int32)
+    d_token = jnp.where(b_same_chain & b_same_residue, d_token, 2 * r_max + 1)
+    rel_token = jax.nn.one_hot(d_token, 2 * r_max + 2)
+
+    d_chain = jnp.clip(
+        feats["sym_id"][:, :, None] - feats["sym_id"][:, None, :] + s_max,
+        0,
+        2 * s_max,
+    ).astype(jnp.int32)
+    d_chain = jnp.where(b_same_chain, 2 * s_max + 1, d_chain)
+    rel_chain = jax.nn.one_hot(d_chain, 2 * s_max + 2)
+
+    p = jnp.concatenate(
+        (
+            rel_pos.astype(jnp.float32),
+            rel_token.astype(jnp.float32),
+            b_same_entity[..., None].astype(jnp.float32),
+            rel_chain.astype(jnp.float32),
+        ),
+        axis=-1,
+    )
+    return p @ params["linear_layer"]["kernel"]
 
 
 def _trunk_feats() -> dict[str, torch.Tensor]:

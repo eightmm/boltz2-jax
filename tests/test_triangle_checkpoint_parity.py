@@ -8,7 +8,7 @@ import torch.nn.functional as functional
 
 from boltz_jax.bridge.torch_checkpoint import load_checkpoint_state_dict
 from boltz_jax.bridge.torch_mapping import map_triangle_multiplication_state_dict
-from boltz_jax.models.triangle import triangle_multiplication_forward
+from boltz_jax.models.triangle.triangle import triangle_multiplication_forward
 
 CHECKPOINT = (
     Path(__file__).resolve().parents[2] / "boltz/.cache/boltz/boltz2_conf.ckpt"
@@ -68,6 +68,40 @@ def test_triangle_mapping_reports_missing_key(
 
     with pytest.raises(KeyError, match="Missing required TriangleMultiplication"):
         map_triangle_multiplication_state_dict(state, prefix)
+
+
+def test_triangle_multiplication_preserves_bfloat16_activation_dtype() -> None:
+    params = _random_triangle_params(dim=8)
+    x = jnp.linspace(-0.5, 0.5, num=1 * 6 * 6 * 8, dtype=jnp.bfloat16).reshape(
+        1, 6, 6, 8
+    )
+    mask = jnp.ones((1, 6, 6), dtype=jnp.bfloat16)
+
+    out = triangle_multiplication_forward(
+        params,
+        x,
+        mask,
+        direction="outgoing",
+        chunk_size=3,
+    )
+
+    assert out.dtype == jnp.bfloat16
+
+
+def _random_triangle_params(dim: int):
+    rng = np.random.default_rng(0)
+
+    def w(*shape):
+        return jnp.asarray(rng.standard_normal(shape) * 0.1, dtype=jnp.bfloat16)
+
+    return {
+        "norm_in": {"scale": w(dim), "bias": w(dim)},
+        "p_in": {"kernel": w(dim, dim * 2)},
+        "g_in": {"kernel": w(dim, dim * 2)},
+        "norm_out": {"scale": w(dim), "bias": w(dim)},
+        "p_out": {"kernel": w(dim, dim)},
+        "g_out": {"kernel": w(dim, dim)},
+    }
 
 
 def _triangle_inputs(

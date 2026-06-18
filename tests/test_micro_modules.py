@@ -1,7 +1,7 @@
 import jax
 import numpy as np
 
-from boltz_jax.models.micro_modules import (
+from boltz_jax.models.primitives.micro_modules import (
     MicroConfig,
     init_micro_inputs,
     init_micro_params,

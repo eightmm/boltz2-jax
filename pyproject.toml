@@ -15,6 +15,8 @@ dependencies = [
     "jaxtyping>=0.2.34",
     "numpy>=2.0",
     "pyyaml>=6.0.2",
+    "safetensors>=0.8.0",
+    "tokamax>=0.0.12",
     "tqdm>=4.66.0",
 ]
 
@@ -22,7 +24,20 @@ dependencies = [
 cuda12 = ["jax[cuda12]>=0.7.1"]
 cuda13 = ["jax[cuda13]>=0.7.1"]
 dev = ["pytest>=8.0.0", "ruff>=0.6.0"]
-torch-bridge = ["torch>=2.2", "pytorch-lightning>=2.5.0", "hydra-core==1.3.2"]
+torch-bridge = [
+    "torch>=2.2",
+    "pytorch-lightning>=2.5.0",
+    "hydra-core==1.3.2",
+    # Featurization core (boltz_jax.data) deps; dev-time only, off the JAX path.
+    "numba==0.61.0",
+    "rdkit>=2024.3.2",
+    "scipy>=1.13",
+    "mashumaro==3.14",
+    # Increment-2 input preprocessing (boltz_jax.data.parse) deps:
+    "gemmi>=0.6",         # mmcif/pdb structure parsing
+    "biopython>=1.83",    # Bio.SeqIO (fasta), Bio.Align (template path)
+    "scikit-learn>=1.3",  # sklearn KDTree (mmcif interfaces)
+]
 
 [project.scripts]
 boltz-jax-inspect-checkpoint = "boltz_jax.bridge.torch_checkpoint:main"
@@ -39,3 +54,11 @@ select = ["E", "F", "I", "N", "UP", "W"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: end-to-end / checkpoint-heavy tests",
+]
+
+[dependency-groups]
+dev = [
+    "einx>=0.4.3",
+]

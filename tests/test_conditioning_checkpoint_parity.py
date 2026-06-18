@@ -11,7 +11,7 @@ from boltz_jax.bridge.torch_mapping import (
     map_pairwise_conditioning_state_dict,
     map_single_conditioning_state_dict,
 )
-from boltz_jax.models.conditioning import (
+from boltz_jax.models.trunk_blocks.conditioning import (
     pairwise_conditioning_forward,
     single_conditioning_forward,
 )

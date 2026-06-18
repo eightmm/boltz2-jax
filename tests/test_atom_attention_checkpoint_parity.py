@@ -12,7 +12,7 @@ from boltz_jax.bridge.torch_mapping import (
     map_atom_attention_decoder_state_dict,
     map_atom_attention_encoder_state_dict,
 )
-from boltz_jax.models.atom import (
+from boltz_jax.models.diffusion.atom import (
     atom_attention_decoder_forward,
     atom_attention_encoder_forward,
     get_indexing_matrix,
