@@ -45,6 +45,12 @@ def main() -> None:
     )
     p.add_argument("--fmt", choices=["pdb", "cif"], default="pdb")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--compile-cache",
+        type=Path,
+        default=None,
+        help="persistent XLA compilation cache dir (reuse compiles across runs)",
+    )
     args = p.parse_args()
 
     assert args.input.exists(), f"missing input: {args.input}"
@@ -68,6 +74,12 @@ def main() -> None:
     from boltz_jax.models.predict import boltz2_predict
 
     jax.config.update("jax_default_matmul_precision", "highest")
+    if args.compile_cache is not None:
+        cache = args.compile_cache.expanduser().resolve()
+        cache.mkdir(parents=True, exist_ok=True)
+        jax.config.update("jax_compilation_cache_dir", str(cache))
+        jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
+        print(f"compile cache: {cache}")
     compute_dtype = {
         "float32": jnp.float32,
         "bfloat16": jnp.bfloat16,
