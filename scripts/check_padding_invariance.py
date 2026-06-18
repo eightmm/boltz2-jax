@@ -20,7 +20,10 @@ import jax.numpy as jnp
 import numpy as np
 
 from boltz_jax.bridge.native import load_features_npz, load_params
-from boltz_jax.models.trunk_blocks.trunk import boltz2_sample_forward, boltz2_trunk_forward
+from boltz_jax.models.trunk_blocks.trunk import (
+    boltz2_sample_forward,
+    boltz2_trunk_forward,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 FEATS_PATH = ROOT / "outputs" / "real_features" / "1UBQ_A.npz"

@@ -91,7 +91,10 @@ def main() -> None:
     from boltz_jax.models.heads.bfactor import bfactor_forward
     from boltz_jax.models.heads.confidence import confidence_module_forward
     from boltz_jax.models.heads.distogram import distogram_forward
-    from boltz_jax.models.trunk_blocks.trunk import boltz2_sample_forward, boltz2_trunk_forward
+    from boltz_jax.models.trunk_blocks.trunk import (
+        boltz2_sample_forward,
+        boltz2_trunk_forward,
+    )
 
     assert CHECKPOINT.exists(), CHECKPOINT
     assert FEATS_NPZ.exists(), FEATS_NPZ

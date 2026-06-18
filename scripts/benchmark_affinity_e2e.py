@@ -34,7 +34,10 @@ from boltz_jax.bridge.affinity_mapping import map_affinity_module_state_dict
 from boltz_jax.bridge.torch_checkpoint import load_checkpoint_state_dict
 from boltz_jax.bridge.torch_mapping import map_boltz2_graph_state_dict
 from boltz_jax.models.heads.affinity import affinity_module_forward
-from boltz_jax.models.trunk_blocks.trunk import boltz2_sample_forward, boltz2_trunk_forward
+from boltz_jax.models.trunk_blocks.trunk import (
+    boltz2_sample_forward,
+    boltz2_trunk_forward,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 BOLTZ_SRC = ROOT.parent / "boltz" / "src"

@@ -51,30 +51,38 @@ def write_input_yaml() -> Path:
     return YAML_PATH
 
 
-def build_features() -> dict[str, np.ndarray]:
-    assert MOL_DIR.exists(), f"missing mols dir: {MOL_DIR}"
-    write_input_yaml()
+def featurize_yaml(
+    yaml_path: Path,
+    out_dir: Path,
+    mol_dir: Path,
+) -> tuple[dict[str, np.ndarray], object, Path]:
+    """Run preprocessing + featurization for one YAML, self-contained.
 
-    data = check_inputs(YAML_PATH)
+    Returns ``(feats_np, manifest, processed_structures_dir)`` where
+    ``feats_np`` maps feature name -> batched numpy array (leading batch dim 1),
+    and the structures dir holds the processed ``{id}.npz`` files used for
+    structure-file writing.
+    """
+    assert mol_dir.exists(), f"missing mols dir: {mol_dir}"
+
+    data = check_inputs(yaml_path)
     assert data, "check_inputs returned nothing"
 
     manifest = process_inputs(
         data=data,
-        out_dir=PREP_DIR,
-        ccd_path=PREP_DIR / "unused_ccd.pkl",  # boltz2=True uses canonicals
-        mol_dir=MOL_DIR,
+        out_dir=out_dir,
+        ccd_path=out_dir / "unused_ccd.pkl",  # boltz2=True uses canonicals
+        mol_dir=mol_dir,
         use_msa_server=False,
         boltz2=True,
     )
-    records = [r for r in manifest.records if r.id == RECORD_ID]
-    assert len(records) == 1, f"record {RECORD_ID} not in manifest"
 
-    processed = PREP_DIR / "processed"
+    processed = out_dir / "processed"
     dataset = PredictionDataset(
         manifest=manifest,
         target_dir=processed / "structures",
         msa_dir=processed / "msa",
-        mol_dir=MOL_DIR,
+        mol_dir=mol_dir,
         constraints_dir=processed / "constraints",
         template_dir=processed / "templates",
         extra_mols_dir=processed / "mols",
@@ -88,6 +96,14 @@ def build_features() -> dict[str, np.ndarray]:
         if not torch.is_tensor(value):
             continue
         feats_np[key] = value.unsqueeze(0).detach().cpu().numpy()
+    return feats_np, manifest, processed / "structures"
+
+
+def build_features() -> dict[str, np.ndarray]:
+    write_input_yaml()
+    feats_np, manifest, _ = featurize_yaml(YAML_PATH, PREP_DIR, MOL_DIR)
+    records = [r for r in manifest.records if r.id == RECORD_ID]
+    assert len(records) == 1, f"record {RECORD_ID} not in manifest"
     return feats_np
 
 

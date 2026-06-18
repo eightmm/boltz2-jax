@@ -48,6 +48,8 @@ where = ["src"]
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+# src/boltz_jax/data/ is vendored verbatim from Boltz (MIT); keep upstream style.
+extend-exclude = ["src/boltz_jax/data"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "W"]
