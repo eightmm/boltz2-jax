@@ -27,7 +27,7 @@ params = load_params(ROOT / "outputs/native_weights/boltz2_conf")
 feats = load_features_npz(ROOT / "outputs/real_features/1UBQ_A.npz")
 fn = jax.jit(lambda P, F, K: boltz2_sample_forward(
     P, F, K, recycling_steps=0, num_sampling_steps=a.steps, augmentation=False,
-    multiplicity=1, compute_dtype=DT[a.dtype],
+    multiplicity=1, compute_dtype=DT[a.dtype], use_scan=True,
     attention_backend=a.ab, triangle_backend=a.tb, glu_backend=a.gb,
     alignment_reverse_diff=a.align,
 )["sample_atom_coords"])

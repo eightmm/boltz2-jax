@@ -292,24 +292,24 @@ def boltz2_sample_forward(
 
     compute_dtype = jnp.dtype(compute_dtype)
     low_precision = compute_dtype != jnp.float32
+    # Mirror Boltz's precision profile: the trunk/pairformer/MSA run in low
+    # precision (bf16-mixed), but the diffusion structure module is an fp32
+    # island -- Boltz wraps `structure_module.sample` in autocast(enabled=False)
+    # with s/z/s_inputs cast to float. So we cast ONLY the trunk inputs to low
+    # precision, keep the diffusion params + feats in fp32, and cast the trunk
+    # outputs back to fp32 before conditioning/sampling. The default fp32 path
+    # is untouched and bit-identical. (Uniform low precision through the
+    # sampling loop diverges: bf16 coordinate updates accumulate over steps.)
+    trunk_params = params["trunk"]
+    trunk_feats = feats
     if low_precision:
-        # OPT-IN low-precision activation path. Weights are loaded fp32 (ABI
-        # unchanged) and cast at runtime here; numerically-sensitive ops stay
-        # in fp32 islands (SVD align, softmax/LayerNorm reductions, the Euler
-        # coordinate update and injected noise). Default fp32 path is untouched
-        # and bit-identical.
-        params = _cast_params(params, compute_dtype)
-        feats = _cast_float_feats(feats, compute_dtype)
-        if trunk is not None:
-            trunk = {
-                k: (v.astype(compute_dtype) if hasattr(v, "dtype") else v)
-                for k, v in trunk.items()
-            }
+        trunk_params = _cast_params(params["trunk"], compute_dtype)
+        trunk_feats = _cast_float_feats(feats, compute_dtype)
 
     if trunk is None:
         trunk = boltz2_trunk_forward(
-            params["trunk"],
-            feats,
+            trunk_params,
+            trunk_feats,
             recycling_steps=recycling_steps,
             eps=eps,
             use_scan=trunk_scan,
@@ -325,6 +325,14 @@ def boltz2_sample_forward(
             token_axis=token_axis,
             shard_tokens=shard_tokens,
         )
+    if low_precision:
+        # Enter the fp32 diffusion island: cast trunk outputs back to fp32 so
+        # conditioning + the sampling loop (which derive dtype from these and
+        # from the fp32 diffusion params/feats) run fully in fp32, as Boltz does.
+        trunk = {
+            k: (v.astype(jnp.float32) if hasattr(v, "dtype") else v)
+            for k, v in trunk.items()
+        }
     diffusion_params = params["conditioned_diffusion"]
     diffusion_conditioning = diffusion_conditioning_forward(
         diffusion_params["diffusion_conditioning"],
