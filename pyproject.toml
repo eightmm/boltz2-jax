@@ -36,6 +36,8 @@ torch-bridge = [
     "mashumaro==3.14",
     # Increment-2 input preprocessing (boltz_jax.data.parse) deps:
     "gemmi>=0.6",         # mmcif/pdb structure parsing
+    "ihm>=1.0",           # mmcif (CIF) structure writer (data/write/mmcif.py)
+    "modelcif>=1.0",      # mmcif (CIF) ModelCIF writer (data/write/mmcif.py)
     "biopython>=1.83",    # Bio.SeqIO (fasta), Bio.Align (template path)
     "scikit-learn>=1.3",  # sklearn KDTree (mmcif interfaces)
     "pandas>=2.0",        # parse/csv.py MSA reader

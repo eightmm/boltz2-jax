@@ -181,7 +181,9 @@ torch-bridge = [
     { name = "chembl-structure-pipeline" },
     { name = "gemmi" },
     { name = "hydra-core" },
+    { name = "ihm" },
     { name = "mashumaro" },
+    { name = "modelcif" },
     { name = "numba" },
     { name = "pandas" },
     { name = "pytorch-lightning" },
@@ -205,11 +207,13 @@ requires-dist = [
     { name = "einops", specifier = ">=0.8.0" },
     { name = "gemmi", marker = "extra == 'torch-bridge'", specifier = ">=0.6" },
     { name = "hydra-core", marker = "extra == 'torch-bridge'", specifier = "==1.3.2" },
+    { name = "ihm", marker = "extra == 'torch-bridge'", specifier = ">=1.0" },
     { name = "jax", specifier = ">=0.7.1" },
     { name = "jax", extras = ["cuda12"], marker = "extra == 'cuda12'", specifier = ">=0.7.1" },
     { name = "jax", extras = ["cuda13"], marker = "extra == 'cuda13'", specifier = ">=0.7.1" },
     { name = "jaxtyping", specifier = ">=0.2.34" },
     { name = "mashumaro", marker = "extra == 'torch-bridge'", specifier = "==3.14" },
+    { name = "modelcif", marker = "extra == 'torch-bridge'", specifier = ">=1.0" },
     { name = "numba", marker = "extra == 'torch-bridge'", specifier = "==0.61.0" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", marker = "extra == 'torch-bridge'", specifier = ">=2.0" },
@@ -587,6 +591,15 @@ wheels = [
 ]
 
 [[package]]
+name = "ihm"
+version = "2.11"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "msgpack" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/34/f7/9f2cd62abdb1ff823ceef5e58bee2d331447966c0d428dc94e0a8c8ee802/ihm-2.11.tar.gz", hash = "sha256:cb1bc75af04c5a7271f788f8018f30ee747a4d73fc45ab23f05d094ca44c0f0c", size = 414341, upload-time = "2026-06-05T21:19:25.889Z" }
+
+[[package]]
 name = "immutabledict"
 version = "4.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -875,6 +888,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3a/cb/28ce52eb94390dda42599c98ea0204d74799e4d8047a0eb559b6fd648056/ml_dtypes-0.5.4-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9ad459e99793fa6e13bd5b7e6792c8f9190b4e5a1b45c63aba14a4d0a7f1d5ff", size = 5009002, upload-time = "2025-11-17T22:31:52.001Z" },
     { url = "https://files.pythonhosted.org/packages/f5/f0/0cfadd537c5470378b1b32bd859cf2824972174b51b873c9d95cfd7475a5/ml_dtypes-0.5.4-cp312-cp312-win_amd64.whl", hash = "sha256:c1a953995cccb9e25a4ae19e34316671e4e2edaebe4cf538229b1fc7109087b7", size = 212222, upload-time = "2025-11-17T22:31:53.742Z" },
     { url = "https://files.pythonhosted.org/packages/16/2e/9acc86985bfad8f2c2d30291b27cd2bb4c74cea08695bd540906ed744249/ml_dtypes-0.5.4-cp312-cp312-win_arm64.whl", hash = "sha256:9bad06436568442575beb2d03389aa7456c690a5b05892c471215bfd8cf39460", size = 160793, upload-time = "2025-11-17T22:31:55.358Z" },
+]
+
+[[package]]
+name = "modelcif"
+version = "1.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ihm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/76/d6/b2a65e0545d7db5426aa18c9c52817c0dfb712faab2ea9c756608ba295a5/modelcif-1.7.tar.gz", hash = "sha256:440b7ae64659e5533cba4cc04bdde8f63c05bac308904d809a790d8ee1799ae0", size = 80228, upload-time = "2026-04-11T00:05:03.434Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/3e/9080991af429741c410c20d3545717c6d42e1241a017b758371cc8431748/modelcif-1.7-py3-none-any.whl", hash = "sha256:755167d7d7bd8f17de26e5cf9b9e3a3b6750ebcb6409894eab2dbcc6f6fb20bf", size = 47636, upload-time = "2026-04-11T00:05:02.411Z" },
 ]
 
 [[package]]
