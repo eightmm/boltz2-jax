@@ -15,17 +15,44 @@ bf16, diffusion structure module kept fp32 (Boltz profile).
 - TF32 matmul-precision flag; fp16-safe additive masks.
 - Persistent compilation cache wired into `scripts/predict.py` (`--compile-cache`).
 
-## Next (ranked, from 3-model advisory synthesis — all math-unchanged)
+## Measured findings (this round)
 
-1. **HLO buffer-assignment dump first.** `--xla_dump_to` → read the
-   buffer-assignment summary to find the true peak buffer set. Optimize targeted,
-   not blind.
-2. **Buffer donation.** `jax.jit(donate_argnums=...)` + donated `lax.scan`
-   carries for pair/single/coords so XLA aliases storage and never holds the old
-   and new pair tensor simultaneously. Biggest math-safe memory win, no recompute
-   cost. Caveat: donated buffers must not be reused in Python; the heads run after
-   sampling, so scope donation to the sampler stage only.
-3. **Shape bucketing + persistent compile cache + persistent tokamax/Triton
+- **Buffer donation: no effect.** `donate_argnums=(params,feats)` on the sampler
+  jit at 1024-residue gave Δpeak ≈ 0 (11891 → 11892 MiB). Params are live through
+  the whole graph and the output (coords) is tiny, so there is nothing to alias;
+  the memory-dominant pair scan carry is already aliased by `lax.scan`. Donation
+  is effectively already done — drop it from the list.
+- **HLO peak buffer = the pair tensor.** The largest XLA buffer-assignment module
+  at 1024 is exactly 536,870,912 B = 512 MiB = `[1,N,N,128]` fp32 pair tensor
+  (`[1,1024,1024,1,64]` per-head views). Plus resident params (~2.9 GiB). bf16
+  halves the pair → matches the measured −17% peak.
+- **Stray copy in the triangle path.** The peak module holds `copy(args_0)` of a
+  pair-sized `[1,1024,1024,1,64]` (268 MiB) — an avoidable duplication from the
+  `swapaxes` layout round-trip in XLA triangle attention. The tokamax/pallas
+  triangle backends avoid it (the kernel handles layout). Targeted lever:
+  eliminate the swapaxes copy (fold into einsum subscripts) or route long-N
+  triangle through the kernel backend.
+- **Compilation is mandatory.** JAX eager (no jit) at 1024 is 1.59x SLOWER than
+  torch eager with far higher memory (process 33.4 vs 17.2 GiB). The entire JAX
+  win (jitted 1.66x faster, peak ≤ torch) comes from XLA fusion — eager
+  materializes every op (the 268 MiB copies included). Production must jit; this
+  is why shape bucketing + persistent compile cache (#3) is required for serving.
+
+## Next (ranked — updated by the measured findings above; all math-unchanged)
+
+1. **Eliminate the triangle `swapaxes` copy** (HLO showed a 268 MiB pair-sized
+   `copy` in the XLA triangle path). Fold the head-axis layout into the einsum
+   subscripts so XLA picks the contraction layout without a physical transpose,
+   or route long-N triangle attention through the tokamax/pallas kernel backend
+   (which avoids the copy). Direct peak win, math-unchanged. Guard with the
+   triangle chunk-parity test.
+2. **Free the full pair tensor before diffusion.** If the sampler only needs a
+   pair-derived bias, precompute the smallest exact conditioning tensor and drop
+   the [N,N,C] pair before the 200-step loop. Pair is an O(N²·C) hard floor
+   (N=3000 bf16 ≈ 2.15 GiB) — can only cut transients/lifetime, not existence.
+3. ~~Buffer donation~~ — MEASURED Δpeak ≈ 0 (see findings); `lax.scan` already
+   aliases the dominant carries. Dropped.
+4. **Shape bucketing + persistent compile cache + persistent tokamax/Triton
    autotune cache.** Pad sequence length to an N-ladder (e.g. 1024/1536/2048/3072)
    so the "hundreds of distinct shapes" collapse to a handful — kills the tokamax
    autotuning stall and XLA recompiles. Pads FLOPs; net win at low request counts.
