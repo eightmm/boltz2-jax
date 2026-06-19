@@ -264,6 +264,18 @@ def run_mmseqs2(  # noqa: PLR0912, D103, C901, PLR0915
     # extract a3m files
     if any(not os.path.isfile(a3m_file) for a3m_file in a3m_files):
         with tarfile.open(tar_gz_file) as tar_gz:
+            # Guard against tar-slip: the archive comes from a remote MSA server.
+            base = os.path.realpath(path)
+            for m in tar_gz.getmembers():
+                dest = os.path.realpath(os.path.join(base, m.name))
+                if (
+                    m.issym()
+                    or m.islnk()
+                    or os.path.isabs(m.name)
+                    or os.path.commonpath([base, dest]) != base
+                ):
+                    msg = f"unsafe tar entry from MSA server: {m.name}"
+                    raise RuntimeError(msg)
             tar_gz.extractall(path)
 
     # gather a3m lines
