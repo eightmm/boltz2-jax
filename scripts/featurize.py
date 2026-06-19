@@ -57,13 +57,22 @@ def _input_digest(yaml_path: Path, mol_dir: Path, opts: tuple) -> str:
     h.update(text)
     h.update(str(mol_dir).encode())
     h.update(repr(opts).encode())
-    # Fold in the content of any referenced file that exists on disk.
+    # Fold in the content of any referenced file that exists on disk. Only
+    # consider path-like tokens (contain '/' or a file extension) and short
+    # enough to be a real path -- avoids treating long sequence strings as paths.
     for tok in re.findall(rb"[\w./@-]+", text):
-        p = Path(tok.decode("utf-8", "ignore"))
-        if p.is_file():
+        s = tok.decode("utf-8", "ignore")
+        if len(s) > 255 or ("/" not in s and "." not in s):
+            continue
+        try:
+            p = Path(s)
+            if not p.is_file():
+                continue
             with p.open("rb") as fh:
                 for chunk in iter(lambda: fh.read(1 << 20), b""):
                     h.update(chunk)
+        except OSError:
+            continue
     return h.hexdigest()[:16]
 
 
