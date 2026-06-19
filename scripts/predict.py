@@ -68,6 +68,14 @@ def main() -> None:
         help="persistent featurization cache dir (memoize features by input "
         "digest; on by default, pass a different path to relocate)",
     )
+    p.add_argument(
+        "--bucket",
+        action="store_true",
+        help="pad token/atom dims to a shape ladder so the compile cache hits "
+        "across different-length targets (serving). Pads FLOPs (single-run "
+        "loss, multi-run win); shifts real coords by ~1e-4 A (fp reassociation "
+        "from padded reductions), biologically negligible.",
+    )
     args = p.parse_args()
 
     assert args.input.exists(), f"missing input: {args.input}"
@@ -115,6 +123,18 @@ def main() -> None:
     }[args.compute_dtype]
 
     params = load_params(args.weights)
+
+    if args.bucket:
+        from check_padding_invariance import pad_feats
+
+        token_ladder = (256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096)
+        n_tok = int(feats_np["token_pad_mask"].shape[-1])
+        n_atom = int(feats_np["atom_pad_mask"].shape[-1])
+        tgt_tok = next((b for b in token_ladder if b >= n_tok), n_tok)
+        tgt_atom = ((n_atom + 31) // 32) * 32  # atom-window (32) multiple
+        feats_np, _log = pad_feats(feats_np, tgt_tok, tgt_atom)
+        print(f"bucket: tokens {n_tok}->{tgt_tok} atoms {n_atom}->{tgt_atom}")
+
     feats = {k: jnp.asarray(v) for k, v in feats_np.items()}
 
     out = boltz2_predict(
