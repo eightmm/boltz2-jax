@@ -39,6 +39,7 @@ torch-bridge = [
     "biopython>=1.83",    # Bio.SeqIO (fasta), Bio.Align (template path)
     "scikit-learn>=1.3",  # sklearn KDTree (mmcif interfaces)
     "pandas>=2.0",        # parse/csv.py MSA reader
+    "requests>=2.31",     # data/msa/mmseqs2.py colabfold MSA-server client
 ]
 
 [project.scripts]

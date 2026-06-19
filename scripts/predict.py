@@ -46,6 +46,16 @@ def main() -> None:
     p.add_argument("--fmt", choices=["pdb", "cif"], default="pdb")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
+        "--use-msa-server",
+        action="store_true",
+        help="generate MSAs via the colabfold mmseqs2 server for protein chains "
+        "that request one (msa not 'empty' and no precomputed a3m/csv)",
+    )
+    p.add_argument("--msa-server-url", default="https://api.colabfold.com")
+    p.add_argument(
+        "--msa-pairing-strategy", choices=["greedy", "complete"], default="greedy"
+    )
+    p.add_argument(
         "--compile-cache",
         type=Path,
         default=None,
@@ -59,7 +69,12 @@ def main() -> None:
     prep_dir = args.out_dir / "prep" / args.input.stem
     prep_dir.mkdir(parents=True, exist_ok=True)
     feats_np, manifest, struct_dir = featurize_yaml(
-        args.input, prep_dir, args.mols
+        args.input,
+        prep_dir,
+        args.mols,
+        use_msa_server=args.use_msa_server,
+        msa_server_url=args.msa_server_url,
+        msa_pairing_strategy=args.msa_pairing_strategy,
     )
     records = manifest.records
     assert len(records) == 1, f"expected 1 record, got {len(records)}"

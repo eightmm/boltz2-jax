@@ -55,6 +55,9 @@ def featurize_yaml(
     yaml_path: Path,
     out_dir: Path,
     mol_dir: Path,
+    use_msa_server: bool = False,
+    msa_server_url: str = "https://api.colabfold.com",
+    msa_pairing_strategy: str = "greedy",
 ) -> tuple[dict[str, np.ndarray], object, Path]:
     """Run preprocessing + featurization for one YAML, self-contained.
 
@@ -73,7 +76,9 @@ def featurize_yaml(
         out_dir=out_dir,
         ccd_path=out_dir / "unused_ccd.pkl",  # boltz2=True uses canonicals
         mol_dir=mol_dir,
-        use_msa_server=False,
+        use_msa_server=use_msa_server,
+        msa_server_url=msa_server_url,
+        msa_pairing_strategy=msa_pairing_strategy,
         boltz2=True,
     )
 
