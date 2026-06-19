@@ -20,6 +20,42 @@ bf16, diffusion structure module kept fp32 (Boltz profile).
   (max 1e-3), trunk latents differ ~5e-5 relative (fp32 reassociation, does NOT
   grow with steps). Eager path retained for parity debugging.
 
+## Kernel backends (tokamax / pallas / flash) — measured verdict
+
+Default is `xla` for all backends (`attention_backend`/`triangle_backend`/
+`glu_backend`). The fused-kernel backends stay **opt-in**, not default, on the
+strength of end-to-end A/Bs (1024-residue, 50 steps, recycling 3, RTX PRO 6000
+Blackwell **sm120**):
+
+| arm (attention/triangle/glu) | steady |
+|---|---|
+| xla / xla / xla | **74.4 s** |
+| xla / tokamax / tokamax | 82.5 s (+11%) |
+| flash / tokamax / tokamax | 80.8 s (+9%) |
+
+Every kernel configuration is a **net regression** end-to-end here, in both fp32
+and bf16-mixed (bf16 changed nothing: the 200-step diffusion attention is a
+deliberate fp32 island, so its q/k/v stay fp32 and tokamax flash falls back to a
+slow fp32 path — `F32_F32_F32` in the autotune log). RMSD vs xla ~1e-3 Å.
+
+Why the isolated micro-benchmarks (triangle tokamax 19 ms vs xla 60 ms at 1024)
+do NOT translate to a full-graph win:
+- the kerneled ops are a small fraction of total runtime — the 200-step diffusion
+  loop dominates, and that loop is the fp32 island (xla);
+- tokamax/pallas kernels are **opaque to XLA fusion**, so neighbouring ops XLA
+  would otherwise fuse get split, eating the kernel's local gain;
+- **sm120 is triton-only** (cudnn/mosaic unavailable) — tokamax's weakest backend.
+
+**Hardware caveat (this repo also runs on non-Blackwell GPUs):** the verdict
+above is sm120-specific. On cudnn-capable NVIDIA (A100/H100) or TPU (mosaic),
+tokamax's strong backends are available and the kernels may *win* — re-run the
+A/B (`scratchpad/ab_decomp.py` pattern) per target before changing defaults
+there. This is exactly why AF3/Protenix benefit from tokamax: bf16 denoiser +
+cudnn/TPU kernels + very long N, none of which hold for Boltz-on-sm120-in-fp32.
+The backends are kept wired (not deleted) for that reason. `custom pallas`
+(triangle only) is redundant with `tokamax` (same op, tokamax faster in the
+isolated bench) — kept as a fallback but `tokamax` is the preferred kernel.
+
 ## Measured findings (this round)
 
 - **Buffer donation: no effect.** `donate_argnums=(params,feats)` on the sampler
