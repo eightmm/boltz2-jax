@@ -29,7 +29,7 @@ def pairformer_module_forward(
     mask: jnp.ndarray,
     pair_mask: jnp.ndarray,
     eps: float = 1e-5,
-    use_scan: bool = False,
+    use_scan: bool = True,
     chunk_size: int = 128,
     triangle_attention_chunk: int | None = None,
     triangle_attention_q_chunk: int | None = None,

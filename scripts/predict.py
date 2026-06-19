@@ -58,8 +58,9 @@ def main() -> None:
     p.add_argument(
         "--compile-cache",
         type=Path,
-        default=None,
-        help="persistent XLA compilation cache dir (reuse compiles across runs)",
+        default=ROOT / "outputs/compile_cache",
+        help="persistent XLA compilation cache dir (reuse compiles across runs); "
+        "on by default, pass a different path to relocate",
     )
     args = p.parse_args()
 

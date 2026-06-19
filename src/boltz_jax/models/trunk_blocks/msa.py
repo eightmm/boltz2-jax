@@ -28,7 +28,7 @@ def msa_module_forward(
     feats: Mapping[str, jnp.ndarray],
     num_tokens: int = 33,
     eps: float = 1e-5,
-    use_scan: bool = False,
+    use_scan: bool = True,
     chunk_size: int = 128,
     triangle_attention_chunk: int | None = None,
     triangle_attention_q_chunk: int | None = None,

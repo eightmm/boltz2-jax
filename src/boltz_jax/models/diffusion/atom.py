@@ -138,7 +138,7 @@ def diffusion_transformer_forward(
     to_keys: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
     multiplicity: int = 1,
     eps: float = 1e-5,
-    use_scan: bool = False,
+    use_scan: bool = True,
     attention_backend: str = "xla",
     chunk_size: int | None = None,
     layer_limit: int | None = None,

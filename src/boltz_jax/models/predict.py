@@ -59,7 +59,7 @@ def boltz2_predict(
     """
     multiplicity = int(sample_kwargs.pop("multiplicity", 1))
     trunk_use_scan = sample_kwargs.get(
-        "trunk_use_scan", sample_kwargs.get("use_scan", False)
+        "trunk_use_scan", sample_kwargs.get("use_scan", True)
     )
 
     trunk = boltz2_trunk_forward(

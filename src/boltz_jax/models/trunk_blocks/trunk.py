@@ -148,7 +148,7 @@ def boltz2_graph_score_forward(
     token_layers: int | None = None,
     multiplicity: int = 1,
     eps: float = 1e-5,
-    use_scan: bool = False,
+    use_scan: bool = True,
     trunk_use_scan: bool | None = None,
     score_use_scan: bool | None = None,
     chunk_size: int = 128,
@@ -231,7 +231,7 @@ def boltz2_sample_forward(
     steering_args: Mapping[str, object] | None = None,
     init_noise: jnp.ndarray | None = None,
     step_noises: jnp.ndarray | None = None,
-    use_scan: bool = False,
+    use_scan: bool = True,
     trunk_use_scan: bool | None = None,
     score_use_scan: bool | None = None,
     trunk: Mapping[str, jnp.ndarray] | None = None,
@@ -383,8 +383,13 @@ def boltz2_sample_forward(
     gammas = jnp.where(sigmas > gamma_min, gamma_0, 0.0)
     atom_coords_denoised = None
 
+    # Scan the sampling loop unless steering is active (steering needs the
+    # Python loop for its per-step guidance); fall back to eager rather than
+    # erroring so use_scan can default on.
+    if use_scan and steering_on:
+        use_scan = False
+
     if use_scan:
-        assert not steering_on, "use_scan only supports the no-steering path"
 
         def _scan_body(carry, xs):
             atom_coords_c, atom_coords_denoised_c, has_denoised, key_c = carry
@@ -697,7 +702,7 @@ def boltz2_trunk_forward(
     cyclic_pos_enc: bool = False,
     fix_sym_check: bool = False,
     eps: float = 1e-5,
-    use_scan: bool = False,
+    use_scan: bool = True,
     chunk_size: int = 128,
     triangle_attention_chunk: int | None = None,
     triangle_attention_q_chunk: int | None = None,
@@ -978,7 +983,7 @@ def _preconditioned_score_forward(
     multiplicity: int,
     sigma_data: float,
     eps: float,
-    use_scan: bool = False,
+    use_scan: bool = True,
     attention_backend: str = "xla",
     token_attention_chunk: int | None = None,
     token_layers: int | None = None,
