@@ -61,6 +61,13 @@ def main() -> None:
         help="persistent XLA compilation cache dir (reuse compiles across runs); "
         "on by default, pass a different path to relocate",
     )
+    p.add_argument(
+        "--feature-cache",
+        type=Path,
+        default=ROOT / "outputs/feature_cache",
+        help="persistent featurization cache dir (memoize features by input "
+        "digest; on by default, pass a different path to relocate)",
+    )
     args = p.parse_args()
 
     assert args.input.exists(), f"missing input: {args.input}"
@@ -75,10 +82,17 @@ def main() -> None:
         use_msa_server=args.use_msa_server,
         msa_server_url=args.msa_server_url,
         msa_pairing_strategy=args.msa_pairing_strategy,
+        cache_dir=args.feature_cache,
     )
-    records = manifest.records
-    assert len(records) == 1, f"expected 1 record, got {len(records)}"
-    record_id = records[0].id
+    if manifest is not None:
+        records = manifest.records
+        assert len(records) == 1, f"expected 1 record, got {len(records)}"
+        record_id = records[0].id
+    else:  # cache hit: record id is the structure npz filename
+        npzs = sorted(struct_dir.glob("*.npz"))
+        assert len(npzs) == 1, f"expected 1 cached structure, got {len(npzs)}"
+        record_id = npzs[0].stem
+        print("(feature cache hit)")
     print(f"featurized record: {record_id}")
 
     # --- Step 2: run the JAX sampler (no torch/boltz at runtime here) ---
