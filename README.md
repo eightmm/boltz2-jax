@@ -140,11 +140,11 @@ Defaults are the fastest verified-safe path on this GPU: fp32, XLA backends,
 | `--compute-dtype` | `float32` / `bfloat16` | bf16-mixed (trunk bf16, diffusion fp32 island) is ~2.12x; fp16 is range-unstable in the sampler |
 | `--compile-cache` | dir (default on) | persistent XLA cache; reuses compiles across runs |
 | `matmul_precision` | `highest` / `default` | `default` = TF32 (GPU) |
-| `attention_backend` | `xla` / `flash` | `flash` = tokamax attention |
+| `attention_backend` | `xla` / `tokamax` | fused tokamax attention |
 | `triangle_backend` | `xla` / `tokamax` / `pallas` | fused triangle kernels |
 | `glu_backend` | `xla` / `tokamax` | transition & triangle-mult GLU |
 
-The fused-kernel backends (`flash`/`tokamax`/`pallas`) are opt-in. On Blackwell
+The fused-kernel backends (`tokamax`/`pallas`) are opt-in. On Blackwell
 **sm120** (triton-only) they are a net regression end-to-end — the 200-step
 diffusion attention is an fp32 island, so the kernels fall back to a slow fp32
 path. `xla` is the default. On cudnn-capable GPUs / TPU they may win; re-measure

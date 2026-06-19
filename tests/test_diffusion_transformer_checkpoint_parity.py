@@ -91,7 +91,7 @@ def test_checkpoint_diffusion_transformer_layer_accepts_flash_backend(
             bias_,
             mask_,
             multiplicity=1,
-            attention_backend="flash",
+            attention_backend="tokamax",
         )
     )
     actual = compiled(params, a_j, s_j, bias_j, mask_j)

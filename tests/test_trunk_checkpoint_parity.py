@@ -323,7 +323,7 @@ def test_checkpoint_boltz2_graph_score_jits_with_flash_backend(
         recycling_steps=0,
         token_layers=1,
         multiplicity=1,
-        attention_backend="flash",
+        attention_backend="tokamax",
     )
     assert actual.shape == (1, 64, 3)
     assert bool(jnp.all(jnp.isfinite(actual)))

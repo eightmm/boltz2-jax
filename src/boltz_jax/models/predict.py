@@ -111,6 +111,15 @@ def boltz2_predict(
             pred_distogram_logits=pred_distogram_logits,
             multiplicity=multiplicity,
             eps=eps,
+            use_scan=bool(sample_kwargs.get("use_scan", True)),
+            chunk_size=int(sample_kwargs.get("chunk_size", 128)),
+            triangle_attention_chunk=sample_kwargs.get("triangle_attention_chunk"),
+            triangle_attention_q_chunk=sample_kwargs.get("triangle_attention_q_chunk"),
+            transition_hidden_chunk=sample_kwargs.get("transition_hidden_chunk"),
+            matmul_precision=str(sample_kwargs.get("matmul_precision", "highest")),
+            attention_backend=str(sample_kwargs.get("attention_backend", "xla")),
+            triangle_backend=str(sample_kwargs.get("triangle_backend", "xla")),
+            glu_backend=str(sample_kwargs.get("glu_backend", "xla")),
         )
         out.update(conf)
 

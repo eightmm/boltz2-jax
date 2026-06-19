@@ -65,7 +65,7 @@ def test_checkpoint_attention_pair_bias_accepts_flash_backend(
             z_,
             mask_,
             k_in=k_,
-            attention_backend="flash",
+            attention_backend="tokamax",
         )
     )
     actual = compiled(params, s, z, mask, k_in)

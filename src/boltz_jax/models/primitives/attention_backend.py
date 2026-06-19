@@ -5,7 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 
 
-def flash_dot_product_attention(
+def tokamax_dot_product_attention(
     q: jnp.ndarray,
     k: jnp.ndarray,
     v: jnp.ndarray,
@@ -38,7 +38,7 @@ def flash_dot_product_attention(
     when triton/cudnn were unavailable.
     """
 
-    if backend != "flash":
+    if backend not in ("tokamax", "flash"):
         msg = f"Unsupported attention backend: {backend!r}"
         raise ValueError(msg)
 
@@ -57,3 +57,7 @@ def flash_dot_product_attention(
         scale=scale,
         implementation=implementation,
     ).astype(v.dtype)
+
+
+# Back-compat alias: the attention "tokamax" backend was historically "flash".
+flash_dot_product_attention = tokamax_dot_product_attention

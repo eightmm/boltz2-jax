@@ -65,37 +65,54 @@ def _torch_sample(
     step_noises: np.ndarray,
     device: str,
     recycling_steps: int = 0,
+    trunk_autocast_dtype: "torch.dtype | None" = None,
 ) -> np.ndarray:
     """Mirror boltz2_sample_forward no-steering / no-augmentation branch.
 
     ``recycling_steps`` MUST match the JAX run: the trunk runs
     ``recycling_steps + 1`` passes, recycling (s, z) each iteration, exactly as
     ``boltz_graph_forward`` does on the JAX side.
+
+    ``trunk_autocast_dtype`` (e.g. ``torch.bfloat16``) runs the trunk under
+    autocast and casts (s, z) back to fp32 before diffusion — Boltz's
+    ``bf16-mixed`` profile (bf16 trunk, fp32 diffusion island). ``None`` = fp32.
     """
+    import contextlib  # noqa: PLC0415
+
     from boltz.model.loss.diffusionv2 import weighted_rigid_align  # noqa: PLC0415
 
     m = torch_model
+    autocast = (
+        torch.autocast("cuda", dtype=trunk_autocast_dtype)
+        if trunk_autocast_dtype is not None
+        else contextlib.nullcontext()
+    )
     # --- Build trunk + diffusion conditioning ONCE (does not depend on r_noisy).
-    s_inputs = m.input_embedder(feats)
-    s_init = m.s_init(s_inputs)
-    z_init = m.z_init_1(s_inputs)[:, :, None] + m.z_init_2(s_inputs)[:, None, :]
-    rel_pos = m.rel_pos(feats)
-    z_init = z_init + rel_pos
-    z_init = z_init + m.token_bonds(feats["token_bonds"].float())
-    z_init = z_init + m.token_bonds_type(feats["type_bonds"].long())
-    z_init = z_init + m.contact_conditioning(feats)
-    s = torch.zeros_like(s_init)
-    z = torch.zeros_like(z_init)
-    mask = feats["token_pad_mask"].float()
-    pair_mask = mask[:, :, None] * mask[:, None, :]
-    # recycling: run (recycling_steps + 1) passes, recycling (s, z) each time.
-    for _ in range(recycling_steps + 1):
-        s = s_init + m.s_recycle(m.s_norm(s))
-        z = z_init + m.z_recycle(m.z_norm(z))
-        z = z + m.msa_module(z, s_inputs, feats, use_kernels=False)
-        s, z = m.pairformer_module(
-            s, z, mask=mask, pair_mask=pair_mask, use_kernels=False
-        )
+    with autocast:
+        s_inputs = m.input_embedder(feats)
+        s_init = m.s_init(s_inputs)
+        z_init = m.z_init_1(s_inputs)[:, :, None] + m.z_init_2(s_inputs)[:, None, :]
+        rel_pos = m.rel_pos(feats)
+        z_init = z_init + rel_pos
+        z_init = z_init + m.token_bonds(feats["token_bonds"].float())
+        z_init = z_init + m.token_bonds_type(feats["type_bonds"].long())
+        z_init = z_init + m.contact_conditioning(feats)
+        s = torch.zeros_like(s_init)
+        z = torch.zeros_like(z_init)
+        mask = feats["token_pad_mask"].float()
+        pair_mask = mask[:, :, None] * mask[:, None, :]
+        # recycling: run (recycling_steps + 1) passes, recycling (s, z) each time.
+        for _ in range(recycling_steps + 1):
+            s = s_init + m.s_recycle(m.s_norm(s))
+            z = z_init + m.z_recycle(m.z_norm(z))
+            z = z + m.msa_module(z, s_inputs, feats, use_kernels=False)
+            s, z = m.pairformer_module(
+                s, z, mask=mask, pair_mask=pair_mask, use_kernels=False
+            )
+    # Boltz casts trunk outputs back to fp32 (diffusion is an fp32 island).
+    s_inputs, s, z, rel_pos = (
+        s_inputs.float(), s.float(), z.float(), rel_pos.float()
+    )
     q, c, to_keys, atom_enc_bias, atom_dec_bias, token_trans_bias = (
         m.diffusion_conditioning(s, z, rel_pos, feats)
     )

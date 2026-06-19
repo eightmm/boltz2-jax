@@ -79,7 +79,15 @@ def confidence_module_forward(
     cyclic_pos_enc: bool = False,
     fix_sym_check: bool = False,
     eps: float = 1e-5,
+    use_scan: bool = True,
+    chunk_size: int = 128,
+    triangle_attention_chunk: int | None = None,
+    triangle_attention_q_chunk: int | None = None,
+    transition_hidden_chunk: int | None = None,
+    matmul_precision: str = "highest",
+    attention_backend: str = "xla",
     triangle_backend: str = "xla",
+    glu_backend: str = "xla",
 ) -> dict[str, Any]:
     """Run ConfidenceModule (real boltz2_conf config) in eval mode."""
 
@@ -151,7 +159,15 @@ def confidence_module_forward(
         mask=mask,
         pair_mask=pair_mask,
         eps=eps,
+        use_scan=use_scan,
+        chunk_size=chunk_size,
+        triangle_attention_chunk=triangle_attention_chunk,
+        triangle_attention_q_chunk=triangle_attention_q_chunk,
+        transition_hidden_chunk=transition_hidden_chunk,
+        matmul_precision=matmul_precision,
+        attention_backend=attention_backend,
         triangle_backend=triangle_backend,
+        glu_backend=glu_backend,
     )
 
     return _confidence_heads_forward(

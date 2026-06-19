@@ -9,7 +9,7 @@ import jax.numpy as jnp
 
 from boltz_jax.models.primitives._common import layer_norm as _layer_norm
 from boltz_jax.models.primitives._common import linear as _linear
-from boltz_jax.models.primitives.attention_backend import flash_dot_product_attention
+from boltz_jax.models.primitives.attention_backend import tokamax_dot_product_attention
 
 AttentionPairBiasParams = Mapping[str, Mapping[str, jnp.ndarray]]
 
@@ -70,8 +70,8 @@ def attention_pair_bias_forward(
     bias = jnp.transpose(bias, (0, 3, 1, 2))
     bias = jnp.repeat(bias, multiplicity, axis=0)
 
-    if attention_backend == "flash":
-        out = flash_dot_product_attention(
+    if attention_backend in ("tokamax", "flash"):
+        out = tokamax_dot_product_attention(
             q,
             k,
             v,
