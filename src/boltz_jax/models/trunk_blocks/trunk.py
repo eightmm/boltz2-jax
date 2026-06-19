@@ -786,7 +786,7 @@ def boltz2_trunk_forward(
     z = jnp.zeros_like(z_init)
     mask = feats["token_pad_mask"].astype(jnp.float32)
     pair_mask = mask[:, :, None] * mask[:, None, :]
-    for _ in range(recycling_steps + 1):
+    def _recycle_step(s: jnp.ndarray, z: jnp.ndarray) -> tuple[jnp.ndarray, ...]:
         s = s_init + _linear(
             _layer_norm(
                 s,
@@ -840,6 +840,24 @@ def boltz2_trunk_forward(
         )
         s = _shard_single(s, mesh, token_axis, shard_tokens)
         z = _shard_pair(z, mesh, token_axis, shard_tokens)
+        return s, z
+
+    # Recycling is a uniform fixed-point iteration over the (s, z) carry; the
+    # body is identical every step, so `lax.scan` traces the trunk once instead
+    # of unrolling `recycling_steps + 1` copies into the HLO (faster compile,
+    # smaller executable). Runtime/peak is unchanged. Eager path kept for parity
+    # debugging and when scan is disabled.
+    if use_scan:
+
+        def _scan_body(carry, _):
+            return _recycle_step(*carry), None
+
+        (s, z), _ = jax.lax.scan(
+            _scan_body, (s, z), xs=None, length=recycling_steps + 1
+        )
+    else:
+        for _ in range(recycling_steps + 1):
+            s, z = _recycle_step(s, z)
 
     return {
         "s_inputs": s_inputs,

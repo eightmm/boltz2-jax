@@ -14,6 +14,11 @@ bf16, diffusion structure module kept fp32 (Boltz profile).
 - `lax.scan` over trunk + 200-step sampling loop; trunk computed once.
 - TF32 matmul-precision flag; fp16-safe additive masks.
 - Persistent compilation cache wired into `scripts/predict.py` (`--compile-cache`).
+- Recycling loop via `lax.scan` (under `use_scan`): trunk traced once instead of
+  unrolling `recycling_steps+1` copies into the HLO. CPU compile of the rc=3
+  trunk dropped **221.96s → 1.46s** (~150x); coords scan-vs-eager RMSD 7e-5 Å
+  (max 1e-3), trunk latents differ ~5e-5 relative (fp32 reassociation, does NOT
+  grow with steps). Eager path retained for parity debugging.
 
 ## Measured findings (this round)
 
