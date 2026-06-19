@@ -35,11 +35,20 @@ def msa_module_forward(
     transition_hidden_chunk: int | None = None,
     matmul_precision: str = "highest",
     glu_backend: str = "xla",
+    subsample_msa: bool = False,
+    num_subsampled_msa: int = 1024,
 ) -> jnp.ndarray:
-    """Run Boltz MSAModule without stochastic MSA subsampling.
+    """Run Boltz MSAModule.
 
     ``use_scan=False`` (default) unrolls the layer stack in Python (lower steady
     latency). ``use_scan=True`` runs the stack via ``lax.scan`` (faster compile).
+
+    ``subsample_msa`` caps the MSA depth at ``num_subsampled_msa`` (default 1024)
+    by taking the first rows, matching the Boltz CLI's inference-time MSA
+    subsampling (Boltz draws a random 1024 subset per call; AF3 takes the first
+    1024 deterministically — we follow AF3's deterministic truncation, which is
+    reproducible and keeps the highest-ranked rows). Cuts MSA-module cost ~Nx for
+    deep MSAs.
     """
 
     # Equivalent to one_hot(msa, num_tokens) @ kernel[:num_tokens] but without
@@ -51,21 +60,30 @@ def msa_module_forward(
     kernel = params["msa_proj"]["kernel"]
     kernel_onehot = kernel[:num_tokens]  # [num_tokens, d]
     kernel_extra = kernel[num_tokens:]  # [3, d]
-    msa_idx = feats["msa"].astype(jnp.int32)
-    extra = jnp.stack(
-        (
-            feats["has_deletion"],
-            feats["deletion_value"],
-            feats["msa_paired"],
-        ),
-        axis=-1,
-    ).astype(kernel_extra.dtype)
+    # Subsample MSA depth (axis 1) to num_subsampled_msa, matching Boltz CLI's
+    # inference-time cap; take the first rows (deterministic, query-first order).
+    msa_d = feats["msa"]
+    has_del = feats["has_deletion"]
+    del_val = feats["deletion_value"]
+    msa_paired = feats["msa_paired"]
+    msa_mask = feats["msa_mask"]
+    if subsample_msa and msa_d.shape[1] > num_subsampled_msa:
+        sl = slice(0, num_subsampled_msa)
+        msa_d = msa_d[:, sl]
+        has_del = has_del[:, sl]
+        del_val = del_val[:, sl]
+        msa_paired = msa_paired[:, sl]
+        msa_mask = msa_mask[:, sl]
+    msa_idx = msa_d.astype(jnp.int32)
+    extra = jnp.stack((has_del, del_val, msa_paired), axis=-1).astype(
+        kernel_extra.dtype
+    )
     m = kernel_onehot[msa_idx] + _linear(extra, kernel_extra)
     m = m + _linear(emb, params["s_proj"]["kernel"])[:, None]
 
     token_mask = feats["token_pad_mask"].astype(m.dtype)
     token_mask = token_mask[:, :, None] * token_mask[:, None, :]
-    msa_mask = feats["msa_mask"].astype(m.dtype)
+    msa_mask = msa_mask.astype(m.dtype)
 
     layers = list(params["layers"])
     if not use_scan:

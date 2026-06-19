@@ -49,6 +49,8 @@ def boltz2_predict(
     run_bfactor: bool = False,
     affinity_params: Params | None = None,
     eps: float = 1e-5,
+    subsample_msa: bool = True,
+    num_subsampled_msa: int = 1024,
     **sample_kwargs: object,
 ) -> dict[str, object]:
     """Run the full Boltz-2 inference graph and return one result dict.
@@ -69,6 +71,8 @@ def boltz2_predict(
         eps=eps,
         use_scan=bool(trunk_use_scan),
         glu_backend=sample_kwargs.get("glu_backend", "xla"),
+        subsample_msa=subsample_msa,
+        num_subsampled_msa=num_subsampled_msa,
     )
     s_inputs, s, z = trunk["s_inputs"], trunk["s"], trunk["z"]
 

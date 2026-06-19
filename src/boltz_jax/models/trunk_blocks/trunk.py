@@ -711,6 +711,8 @@ def boltz2_trunk_forward(
     attention_backend: str = "xla",
     triangle_backend: str = "xla",
     glu_backend: str = "xla",
+    subsample_msa: bool = False,
+    num_subsampled_msa: int = 1024,
     mesh: object | None = None,
     token_axis: str = "tok",
     shard_tokens: bool = True,
@@ -825,6 +827,8 @@ def boltz2_trunk_forward(
             transition_hidden_chunk=transition_hidden_chunk,
             matmul_precision=matmul_precision,
             glu_backend=glu_backend,
+            subsample_msa=subsample_msa,
+            num_subsampled_msa=num_subsampled_msa,
         )
         s, z = pairformer_module_forward(
             params["pairformer_module"],

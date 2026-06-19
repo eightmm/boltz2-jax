@@ -47,11 +47,19 @@ def main() -> None:
     params = load_params(a.weights)
     dt = DTYPES[a.compute_dtype]
     heads = not a.no_heads
+    # Inject the SAME external noise torch_infer_cif uses (numpy rng(seed)), so
+    # JAX and torch CIFs are sampled from identical noise and overlay directly.
+    n_atoms = int(f["atom_pad_mask"].shape[1])
+    rng = np.random.default_rng(a.seed)
+    init_noise = rng.standard_normal((1, n_atoms, 3)).astype(np.float32)
+    step_noises = rng.standard_normal((a.steps, 1, n_atoms, 3)).astype(np.float32)
     kw = dict(
         recycling_steps=a.recycling, num_sampling_steps=a.steps, augmentation=False,
         run_confidence=heads, run_distogram=heads, run_bfactor=heads, use_scan=True,
         compute_dtype=dt, attention_backend=a.attention_backend,
         triangle_backend=a.triangle_backend, glu_backend=a.glu_backend,
+        init_noise=jnp.asarray(init_noise), step_noises=jnp.asarray(step_noises),
+        alignment_reverse_diff=True,
     )
 
     dev = jax.devices()[0]
@@ -61,7 +69,7 @@ def main() -> None:
     t1 = time.perf_counter()
 
     peak = dev.memory_stats().get("peak_bytes_in_use", 0) / 1024**2
-    plddt = np.asarray(out["plddt"]).reshape(-1) if "plddt" in out else np.array([0.0])
+    plddt = np.asarray(out["plddt"]).reshape(-1) if "plddt" in out else None
     assert np.all(np.isfinite(coords)), "non-finite coords"
 
     a.out.parent.mkdir(parents=True, exist_ok=True)
@@ -74,7 +82,7 @@ def main() -> None:
     print(
         f"RESULT cfg={tag} steps={a.steps} "
         f"time={t1 - t0:.2f}s peak_vram={peak:.0f}MiB "
-        f"plddt_mean={plddt.mean():.4f} WROTE {written}"
+        f"plddt_mean={(plddt.mean() if plddt is not None else -1):.4f} WROTE {written}"
     )
 
 
