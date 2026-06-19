@@ -63,10 +63,16 @@ def single_to_keys(
 def gather_tokens_to_atoms(
     atom_to_token: jnp.ndarray,
     token_values: jnp.ndarray,
+    index: tuple[jnp.ndarray, jnp.ndarray] | None = None,
 ) -> jnp.ndarray:
-    """Apply dense one-hot atom->token map as a batched gather."""
+    """Apply dense one-hot atom->token map as a batched gather.
 
-    token_idx, valid = _one_hot_index(atom_to_token)
+    ``index`` may carry precomputed ``(token_idx, valid)`` from
+    :func:`atom_to_token_index` so the argmax over the dense map is not
+    recomputed inside the per-step sampler loop. Bit-identical either way.
+    """
+
+    token_idx, valid = _one_hot_index(atom_to_token) if index is None else index
     gathered = jnp.take_along_axis(token_values, token_idx[..., None], axis=1)
     return gathered * valid[..., None].astype(gathered.dtype)
 
@@ -75,11 +81,16 @@ def scatter_atoms_to_tokens_mean(
     atom_to_token: jnp.ndarray,
     atom_values: jnp.ndarray,
     eps: float = 1e-6,
+    index: tuple[jnp.ndarray, jnp.ndarray] | None = None,
 ) -> jnp.ndarray:
-    """Apply normalized dense one-hot atom->token map as scatter mean."""
+    """Apply normalized dense one-hot atom->token map as scatter mean.
+
+    ``index`` may carry precomputed ``(token_idx, valid)``; see
+    :func:`gather_tokens_to_atoms`. Bit-identical either way.
+    """
 
     batch, _, tokens = atom_to_token.shape
-    token_idx, valid = _one_hot_index(atom_to_token)
+    token_idx, valid = _one_hot_index(atom_to_token) if index is None else index
 
     def one(batch_idx: jnp.ndarray, valid_b: jnp.ndarray, values_b: jnp.ndarray):
         values_b = values_b * valid_b[:, None].astype(values_b.dtype)
@@ -127,6 +138,32 @@ def _one_hot_index(x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     idx = jnp.argmax(x, axis=-1)
     valid = jnp.any(x > 0, axis=-1)
     return idx, valid
+
+
+def atom_to_token_index(
+    atom_to_token: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Precompute ``(token_idx, valid)`` for a dense one-hot atom->token map.
+
+    Returns exactly what :func:`_one_hot_index` produces on the (unrepeated)
+    dense map, so callers can hoist the argmax/any out of the per-step sampler
+    loop while staying bit-identical. Repeat by multiplicity at use site via
+    :func:`_repeat_index`.
+    """
+
+    return _one_hot_index(atom_to_token.astype(jnp.float32))
+
+
+def _repeat_index(
+    index: tuple[jnp.ndarray, jnp.ndarray] | None, multiplicity: int
+) -> tuple[jnp.ndarray, jnp.ndarray] | None:
+    if index is None or multiplicity == 1:
+        return index
+    idx, valid = index
+    return (
+        jnp.repeat(idx, multiplicity, axis=0),
+        jnp.repeat(valid, multiplicity, axis=0),
+    )
 
 
 def diffusion_transformer_forward(
@@ -329,6 +366,7 @@ def atom_attention_encoder_forward(
     structure_prediction: bool = True,
     eps: float = 1e-5,
     attention_backend: str = "xla",
+    atom_to_token_idx: tuple[jnp.ndarray, jnp.ndarray] | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Run Boltz AtomAttentionEncoder using precomputed atom conditioning."""
 
@@ -362,7 +400,8 @@ def atom_attention_encoder_forward(
     q_to_a = jax.nn.relu(_linear(q, params["atom_to_token_trans"]["kernel"])).astype(
         q.dtype
     )
-    a = scatter_atoms_to_tokens_mean(atom_to_token, q_to_a).astype(q.dtype)
+    idx = _repeat_index(atom_to_token_idx, multiplicity)
+    a = scatter_atoms_to_tokens_mean(atom_to_token, q_to_a, index=idx).astype(q.dtype)
     return a, q, c
 
 
@@ -379,6 +418,7 @@ def atom_attention_decoder_forward(
     attn_window_keys: int = 128,
     eps: float = 1e-5,
     attention_backend: str = "xla",
+    atom_to_token_idx: tuple[jnp.ndarray, jnp.ndarray] | None = None,
 ) -> jnp.ndarray:
     """Run Boltz AtomAttentionDecoder using precomputed atom conditioning."""
 
@@ -388,6 +428,7 @@ def atom_attention_decoder_forward(
     a_to_q = gather_tokens_to_atoms(
         atom_to_token,
         _linear(a.astype(q.dtype), params["a_to_q_trans"]["kernel"]),
+        index=_repeat_index(atom_to_token_idx, multiplicity),
     )
     q = q + a_to_q.astype(q.dtype)
     atom_mask = jnp.repeat(feats["atom_pad_mask"], multiplicity, axis=0)

@@ -40,6 +40,8 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--no-heads", action="store_true",
                    help="disable confidence/distogram/bfactor heads (structure only)")
+    p.add_argument("--steady", action="store_true",
+                   help="also run a 2nd call to measure steady-state (compile-excluded) time")
     a = p.parse_args()
 
     f = torch.load(a.features_pt)
@@ -67,6 +69,12 @@ def main() -> None:
     out = boltz2_predict(params, feats, jax.random.PRNGKey(a.seed), **kw)
     coords = np.asarray(jax.block_until_ready(out["sample_atom_coords"]))
     t1 = time.perf_counter()
+    # steady-state (executable cached): second identical call
+    t_steady = float("nan")
+    if a.steady:
+        out2 = boltz2_predict(params, feats, jax.random.PRNGKey(a.seed), **kw)
+        np.asarray(jax.block_until_ready(out2["sample_atom_coords"]))
+        t_steady = time.perf_counter() - t1
 
     peak = dev.memory_stats().get("peak_bytes_in_use", 0) / 1024**2
     plddt = np.asarray(out["plddt"]).reshape(-1) if "plddt" in out else None
@@ -81,7 +89,7 @@ def main() -> None:
     tag = f"{a.compute_dtype}/{a.attention_backend}/{a.triangle_backend}/{a.glu_backend}"
     print(
         f"RESULT cfg={tag} steps={a.steps} "
-        f"time={t1 - t0:.2f}s peak_vram={peak:.0f}MiB "
+        f"compile+first={t1 - t0:.2f}s steady={t_steady:.2f}s peak_vram={peak:.0f}MiB "
         f"plddt_mean={(plddt.mean() if plddt is not None else -1):.4f} WROTE {written}"
     )
 

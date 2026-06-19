@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 
 from boltz_jax.models.diffusion.atom import (
+    atom_to_token_index,
     gather_token_pairs_to_atom_windows,
     gather_tokens_to_atoms,
     get_indexing_matrix,
@@ -59,6 +60,7 @@ def diffusion_conditioning_forward(
     out = {
         "q": q,
         "c": c,
+        "atom_to_token_idx": atom_to_token_index(feats["atom_to_token"]),
         "to_keys": lambda x: single_to_keys(x, indexing, w=w, h_keys=h_keys),
         "atom_enc_bias": _projection_list_forward(params["atom_enc_proj_z"], p, eps),
         "atom_dec_bias": _projection_list_forward(params["atom_dec_proj_z"], p, eps),

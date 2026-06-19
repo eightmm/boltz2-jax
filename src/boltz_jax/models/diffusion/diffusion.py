@@ -54,6 +54,7 @@ def diffusion_score_model_forward(
         eps=eps,
     )
 
+    atom_to_token_idx = diffusion_conditioning.get("atom_to_token_idx")
     a, q_skip, c_skip = atom_attention_encoder_forward(
         params["atom_attention_encoder"],
         feats=feats,
@@ -65,6 +66,7 @@ def diffusion_score_model_forward(
         multiplicity=multiplicity,
         eps=eps,
         attention_backend=attention_backend,
+        atom_to_token_idx=atom_to_token_idx,
     )
 
     s_to_a = params["s_to_a_linear"]
@@ -110,6 +112,7 @@ def diffusion_score_model_forward(
         multiplicity=multiplicity,
         eps=eps,
         attention_backend=attention_backend,
+        atom_to_token_idx=atom_to_token_idx,
     )
 
 
