@@ -22,8 +22,10 @@ low-precision inference — selectable per backend without changing weights.
   under `src/boltz_jax/data/`). Supported inputs: proteins, ligands (SMILES and
   CCD codes), templates (CIF/PDB), and MSAs from `msa: empty`, precomputed
   a3m/csv, or the colabfold MSA server.
-- Faster than the PyTorch Boltz-2 reference: ~1.66x (fp32) / ~2.12x (bf16-mixed)
-  at 1024 residues on an RTX PRO 6000, from XLA fusion.
+- Faster and lighter than the PyTorch Boltz-2 reference: at integrin9 (952 res,
+  deep MSA, 200 steps) steady inference is **89 s / 11.2 GiB** vs `boltz predict`
+  602 s / 21.8 GiB; fp32 matches torch to **1e-4 Å**. Wins come from XLA fusion,
+  MSA subsampling, and feature/compile caches.
 
 ## Install
 
@@ -139,6 +141,8 @@ Defaults are the fastest verified-safe path on this GPU: fp32, XLA backends,
 |------|---------|-------|
 | `--compute-dtype` | `float32` / `bfloat16` | bf16-mixed (trunk bf16, diffusion fp32 island) is ~2.12x; fp16 is range-unstable in the sampler |
 | `--compile-cache` | dir (default on) | persistent XLA cache; reuses compiles across runs |
+| `--feature-cache` | dir (default on) | memoize features by input digest; cache hit is bit-identical and skips featurization |
+| `--bucket` | flag (default off) | pad token/atom dims to a ladder so different lengths share compile-cache entries (serving); shifts coords ~1e-4 Å |
 | `matmul_precision` | `highest` / `default` | `default` = TF32 (GPU) |
 | `attention_backend` | `xla` / `tokamax` | fused tokamax attention |
 | `triangle_backend` | `xla` / `tokamax` / `pallas` | fused triangle kernels |

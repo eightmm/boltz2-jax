@@ -1,12 +1,36 @@
 # boltz2-jax optimization roadmap
 
 Inference-only, weight-compatible (model math unchanged) — only the evaluation
-graph may change. Measured baseline (RTX PRO 6000 Blackwell sm120, 1024-residue,
-50 steps, recycling 3): JAX fp32 = **1.66x** faster than torch Boltz at **−3%**
-peak; **bf16-mixed = 2.12x** + **−17%** peak (10.2 GiB). bf16-mixed = trunk in
-bf16, diffusion structure module kept fp32 (Boltz profile).
+graph may change.
+
+## Real-target benchmark (integrin9: 952 res, 7396 atoms, MSA depth 8192, 200
+steps, recycling 3, RTX PRO 6000 sm120, fp32)
+
+| run | wall | peak VRAM |
+|-----|------|-----------|
+| JAX cold (featurize + 172s compile + inference) | 240 s | 11.2 GiB |
+| **JAX warm (feature-cache + compile-cache hit)** | **89 s** | 11.2 GiB |
+| torch `boltz predict` CLI (full, with confidence) | 602 s | 21.8 GiB |
+| controlled runtime (subsample 1024, no-conf): JAX steady vs torch eager | **78 s** vs 88 s | **11.2** vs 13.4 GiB |
+
+JAX steady inference beats torch; the 172s compile is one-time and amortized by
+the persistent cache. fp32 vs torch fp32 = **0.0001 Å** (bit-level). bf16-mixed
+is ~2.12x at 1024-mer with `msa:empty`, but at integrin9 (deep MSA, subsample
+1024) bf16 ≈ fp32 in steady time and VRAM (peak is the fp32 diffusion island,
+not MSA).
 
 ## Done
+- **MSA subsampling to 1024** (Boltz CLI default; first-N deterministic, AF3
+  style). Was processing the full 8192 depth → peak VRAM 36.2 → **11.2 GiB
+  (−69%)** on integrin9. The MSA module was the memory peak, not the sampler.
+- **Feature cache** (`predict.py --feature-cache`, on): digest-keyed memoization
+  of features + structure npz; cache hit is bit-identical and skips
+  preprocessing + featurization (repeated-target wall 240 → 89 s).
+- **Shape bucketing** (`predict.py --bucket`, opt-in/off): pad token→ladder,
+  atom→×32, so different lengths share compile-cache entries (serving). Real
+  coords shift ~1e-4 Å (fp reassociation) — not bit-exact, hence opt-in.
+- Hoisted the `atom_to_token` argmax out of the 200-step sampler loop
+  (precompute index once in conditioning); bit-identical.
 - Chunking: triangle / OuterProductMean / transition / token-attention.
 - Fused kernels: tokamax (Triton) + custom Pallas flash (opt-in).
 - bf16-mixed precision profile (trunk bf16, diffusion fp32 island).
