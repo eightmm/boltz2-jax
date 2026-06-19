@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """torch-vs-JAX RMSD matrix over precision/backend on a fixed feature set.
 
 torch fp32 reference (built from the checkpoint, identical injected noise) vs

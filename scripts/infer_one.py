@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Single standalone inference of one config: time + peak VRAM + CIF output.
 
 Loads a precomputed feature .pt (fixed MSA/template), runs boltz2_predict for

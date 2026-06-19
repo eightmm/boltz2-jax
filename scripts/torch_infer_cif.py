@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """PyTorch Boltz-2 reference inference -> CIF + time + peak VRAM.
 
 Builds the torch reference graph from the checkpoint, runs the same Euler
