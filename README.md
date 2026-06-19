@@ -18,8 +18,12 @@ low-precision inference — selectable per backend without changing weights.
 - Inference only (no training).
 - Weight-compatible: the same Boltz-2 checkpoints load and run; no checkpoint
   key/shape or feature ABI change.
-- Self-contained data pipeline: raw input → features runs without `import boltz`
-  (the protein featurization path is vendored under `src/boltz_jax/data/`).
+- Data pipeline (raw input → features) runs without `import boltz` (vendored
+  under `src/boltz_jax/data/`). Supported inputs: proteins, ligands (SMILES and
+  CCD codes), templates (CIF/PDB), and MSAs from `msa: empty`, precomputed
+  a3m/csv, or the colabfold MSA server.
+- Faster than the PyTorch Boltz-2 reference: ~1.66x (fp32) / ~2.12x (bf16-mixed)
+  at 1024 residues on an RTX PRO 6000, from XLA fusion.
 
 ## Install
 
@@ -73,72 +77,78 @@ uv run --extra torch-bridge python scripts/export_native_weights.py \
 # -> outputs/native_weights/boltz2_conf.safetensors, boltz2_aff.safetensors
 ```
 
-## Data pipeline (input → features)
+## Inference
 
-The vendored featurizer turns a Boltz-style YAML/FASTA into the feature dict the
-model consumes, using only `boltz_jax.data` (no `import boltz`). The protein
-path currently supports `msa: empty` (single + multimer chains; ligands /
-templates / MSA-search are not yet ported).
+`scripts/predict.py` is the entry point: raw YAML → structure file. Defaults
+match Boltz-2 (`--steps 200 --recycling 3`, step scale 1.5, fp32). `mols/` (from
+the download above) is required at featurization time.
+
+```bash
+uv run --extra torch-bridge python scripts/predict.py \
+  --input job.yaml \
+  --weights outputs/native_weights/boltz2_conf \
+  --mols .cache/boltz/mols \
+  --out-dir outputs/predictions \
+  --fmt cif            # or pdb
+```
+
+### Input examples
+
+Protein + ligand (CCD code; SMILES also works via `smiles:`):
 
 ```yaml
-# 1ubq.yaml
 version: 1
 sequences:
   - protein:
       id: A
       sequence: MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
       msa: empty
+  - ligand:
+      id: B
+      ccd: ATP
 ```
 
-```bash
-# YAML -> processed structure NPZ -> feature dict
-uv run --extra torch-bridge python scripts/preprocess_standalone.py
+With a structural template:
+
+```yaml
+version: 1
+sequences:
+  - protein:
+      id: A
+      sequence: MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
+      msa: empty
+templates:
+  - cif: path/to/template.cif
 ```
 
-`mols/` (from the download above) supplies canonical residue geometry and is
-required at featurization time.
-
-## Inference
+MSAs: set `msa: empty` (single sequence), point to a precomputed `.a3m`/`.csv`,
+or omit `msa` and generate one from the colabfold server with `--use-msa-server`:
 
 ```bash
-uv run python scripts/run_standalone_inference.py \
-  --weights outputs/native_weights/boltz2_conf \
-  --features outputs/real_features/1UBQ_A.npz \
-  --steps 25
+uv run --extra torch-bridge python scripts/predict.py \
+  --input job.yaml --use-msa-server --fmt cif
+# [--msa-server-url https://api.colabfold.com] [--msa-pairing-strategy greedy|complete]
 ```
 
 ### Optimization knobs
 
-Selectable at the sampler/predict entry points; defaults reproduce the bit-exact
-fp32 XLA path.
+Defaults are the fastest verified-safe path on this GPU: fp32, XLA backends,
+`use_scan` on, persistent compile cache on.
 
 | Knob | Options | Notes |
 |------|---------|-------|
-| `compute_dtype` | `float32` / `bfloat16` | use **bf16** for low precision (fp32 range); fp16 is range-unstable in the diffusion sampler |
+| `--compute-dtype` | `float32` / `bfloat16` | bf16-mixed (trunk bf16, diffusion fp32 island) is ~2.12x; fp16 is range-unstable in the sampler |
+| `--compile-cache` | dir (default on) | persistent XLA cache; reuses compiles across runs |
 | `matmul_precision` | `highest` / `default` | `default` = TF32 (GPU) |
-| `attention_backend` | `xla` / `flash` | `flash` = tokamax token attention |
-| `triangle_backend` | `xla` / `tokamax` / `pallas` | tokamax Triton wins at long N on supported GPUs |
+| `attention_backend` | `xla` / `flash` | `flash` = tokamax attention |
+| `triangle_backend` | `xla` / `tokamax` / `pallas` | fused triangle kernels |
 | `glu_backend` | `xla` / `tokamax` | transition & triangle-mult GLU |
-| chunking | `chunk_size`, `triangle_attention_chunk`, … | AF3-style length-dependent tiling |
 
-Hardware note: tokamax `cudnn`/`mosaic` attention kernels are unavailable on
-Blackwell (sm120); the Triton path is the fast option there.
-
-### Known limitations
-
-- **Low precision: use bf16, not fp16.** bf16 + XLA is e2e-stable (aligned RMSD
-  vs fp32 ≈ 0.26 A on 1UBQ); fp16 overflows the diffusion sampler's dynamic
-  range over a trajectory (coordinates / EDM sigma exceed fp16's ~65504) and
-  diverges. Keep `alignment_reverse_diff=True` (default in the bench path) — it
-  anchors the trajectory and is what keeps low-precision drift small.
-- **tokamax kernels are per-module fast and numerically correct, but the full
-  sampler with tokamax backends is gated by autotuning cost** — tokamax Triton
-  autotunes hundreds of distinct attention shapes (CPU-side) on a fresh run,
-  which can stall a full sample. A persistent autotuning cache is needed before
-  the tokamax e2e path is practical. Per-module benchmarks show the speed/memory
-  win; the default XLA path is bit-exact and always available.
-- Data pipeline covers the protein path with `msa: empty`; ligands, templates,
-  and MSA-server search are not yet ported.
+The fused-kernel backends (`flash`/`tokamax`/`pallas`) are opt-in. On Blackwell
+**sm120** (triton-only) they are a net regression end-to-end — the 200-step
+diffusion attention is an fp32 island, so the kernels fall back to a slow fp32
+path. `xla` is the default. On cudnn-capable GPUs / TPU they may win; re-measure
+per target. See [`docs/OPTIMIZATION.md`](docs/OPTIMIZATION.md).
 
 ## Tests
 

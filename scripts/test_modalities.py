@@ -16,9 +16,9 @@ from pathlib import Path
 
 import numpy as np
 
-assert "boltz" not in sys.modules, "must be self-contained (no import boltz)"
+assert "boltz" not in sys.modules, "runtime must not import boltz"
 
-from preprocess_standalone import featurize_yaml  # noqa: E402
+from featurize import featurize_yaml  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 BOLTZ_ROOT = ROOT.parent / "boltz"

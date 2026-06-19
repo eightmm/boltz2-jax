@@ -33,7 +33,7 @@ out = Path(a.out) if a.out else ROOT / "outputs/real_features" / f"{a.id}.pt"
 prep = ROOT / "outputs/prep" / a.id
 prep.mkdir(parents=True, exist_ok=True)
 yaml = prep / f"{a.id}.yaml"
-yaml.write_text(f"version: 1\nsequences:\n  - protein:\n      id: A\n      sequence: {seq}\n      msa: empty\n")
+yaml.write_text(f"version: 1\nsequences:\n  - protein:\n      id: A\n      sequence: {seq}\n      msa: empty\n")  # noqa: E501
 
 assert MOL_DIR.exists(), f"missing mols: {MOL_DIR}"
 data = check_inputs(yaml)

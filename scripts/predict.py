@@ -1,16 +1,16 @@
-"""Unified boltz_jax predict CLI: raw YAML -> structure file (PDB/mmCIF).
+"""boltz_jax predict CLI: raw YAML -> structure file (PDB/mmCIF).
 
-Self-contained (no `import boltz`): preprocess + featurize via boltz_jax.data,
-run the JAX structure sampler with native weights, then write the predicted
-structure with the vendored writers.
+Featurizes the input via boltz_jax.data, runs the JAX structure sampler with
+native weights, and writes the predicted structure.
 
 Run:
   uv run --extra torch-bridge python scripts/predict.py \
       --input X.yaml \
       --weights outputs/native_weights/boltz2_conf \
-      --mols ../boltz/.cache/boltz/mols \
+      --mols .cache/boltz/mols \
       --out-dir outputs/predictions \
       [--steps 200 --recycling 3 --compute-dtype float32|bfloat16 --fmt pdb|cif]
+      [--use-msa-server]
 """
 
 from __future__ import annotations
@@ -24,8 +24,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-# Featurization (torch side) lives in the standalone preprocessor.
-from preprocess_standalone import featurize_yaml  # noqa: E402
+from featurize import featurize_yaml  # noqa: E402
 
 
 def main() -> None:
