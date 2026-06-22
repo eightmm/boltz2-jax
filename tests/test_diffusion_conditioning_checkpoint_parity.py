@@ -12,7 +12,9 @@ from boltz_jax.bridge.torch_mapping import (
     map_diffusion_conditioning_state_dict,
 )
 from boltz_jax.models.diffusion.diffusion import conditioned_diffusion_score_forward
-from boltz_jax.models.diffusion.diffusion_conditioning import diffusion_conditioning_forward
+from boltz_jax.models.diffusion.diffusion_conditioning import (
+    diffusion_conditioning_forward,
+)
 
 CHECKPOINT = (
     Path(__file__).resolve().parents[2] / "boltz/.cache/boltz/boltz2_conf.ckpt"

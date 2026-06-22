@@ -65,7 +65,7 @@ def _torch_sample(
     step_noises: np.ndarray,
     device: str,
     recycling_steps: int = 0,
-    trunk_autocast_dtype: "torch.dtype | None" = None,
+    trunk_autocast_dtype: torch.dtype | None = None,
 ) -> np.ndarray:
     """Mirror boltz2_sample_forward no-steering / no-augmentation branch.
 

@@ -8,7 +8,10 @@ import torch
 
 from boltz_jax.bridge.torch_checkpoint import load_checkpoint_state_dict
 from boltz_jax.bridge.torch_mapping import map_msa_module_state_dict
-from boltz_jax.models.trunk_blocks.msa import msa_module_forward, pair_weighted_averaging_forward
+from boltz_jax.models.trunk_blocks.msa import (
+    msa_module_forward,
+    pair_weighted_averaging_forward,
+)
 
 CHECKPOINT = (
     Path(__file__).resolve().parents[2] / "boltz/.cache/boltz/boltz2_conf.ckpt"

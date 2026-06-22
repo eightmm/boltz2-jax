@@ -9,7 +9,9 @@ import torch
 
 from boltz_jax.bridge.torch_checkpoint import load_checkpoint_state_dict
 from boltz_jax.bridge.torch_mapping import map_diffusion_transformer_layer_state_dict
-from boltz_jax.models.diffusion.diffusion_transformer import diffusion_transformer_layer_forward
+from boltz_jax.models.diffusion.diffusion_transformer import (
+    diffusion_transformer_layer_forward,
+)
 
 CHECKPOINT = (
     Path(__file__).resolve().parents[2] / "boltz/.cache/boltz/boltz2_conf.ckpt"

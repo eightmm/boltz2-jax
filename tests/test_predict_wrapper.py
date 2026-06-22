@@ -19,7 +19,10 @@ from boltz_jax.models.heads.bfactor import bfactor_forward
 from boltz_jax.models.heads.confidence import confidence_module_forward
 from boltz_jax.models.heads.distogram import distogram_forward
 from boltz_jax.models.predict import boltz2_predict
-from boltz_jax.models.trunk_blocks.trunk import boltz2_sample_forward, boltz2_trunk_forward
+from boltz_jax.models.trunk_blocks.trunk import (
+    boltz2_sample_forward,
+    boltz2_trunk_forward,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 WEIGHTS = ROOT / "outputs/native_weights/boltz2_conf"
