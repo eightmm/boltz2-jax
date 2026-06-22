@@ -127,6 +127,34 @@ diffusion attention is an fp32 island, so the kernels fall back to a slow fp32
 path. `xla` is the default. On cudnn-capable GPUs / TPU they may win; re-measure
 per target.
 
+## Python API
+
+After `setup.sh`, call inference from Python (heavy deps load lazily, so
+`import boltz_jax` stays cheap):
+
+```python
+import boltz_jax
+
+out = boltz_jax.predict(
+    seq=["MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"],
+    ligand_ccd=["ATP"],                 # also dna=, rna=, ligand_smiles=, or input="job.yaml"
+    weights="outputs/native_weights/boltz2_conf",
+    mols=".cache/boltz/mols",
+    write_fmt="cif",                    # omit to skip writing a structure file
+)
+out["coords"]   # (n_atom, 3) np.ndarray;  out["plddt"], out["raw"], out["out_path"]
+```
+
+For composing with other JAX models, use the low-level pure-JAX function and the
+weight loader directly:
+
+```python
+from boltz_jax import boltz2_predict, load_params, build_job_yaml  # all lazy
+```
+
+`boltz2_predict(params, feats, key, ...)` is a jit-friendly function over a
+parameter + feature pytree; `boltz_jax.featurize(...)` produces `feats`.
+
 ## Tests
 
 ```bash

@@ -16,15 +16,13 @@ Run:
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "scripts"))
 
-from featurize import featurize_yaml  # noqa: E402
+from boltz_jax.data.featurize import featurize_yaml  # noqa: E402
 
 
 def main() -> None:
@@ -96,7 +94,7 @@ def main() -> None:
             args.seq or args.dna or args.rna or args.ligand_ccd or args.ligand_smiles
         )
         assert any_entity, "provide --input YAML or --seq/--dna/--rna/--ligand-*"
-        from make_job_yaml import build_job_yaml
+        from boltz_jax.data.job_yaml import build_job_yaml
 
         gen_dir = args.out_dir / "prep" / "job"
         gen_dir.mkdir(parents=True, exist_ok=True)
