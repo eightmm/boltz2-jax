@@ -162,7 +162,7 @@ per target. See [`docs/OPTIMIZATION.md`](docs/OPTIMIZATION.md).
 ## Tests
 
 ```bash
-uv run pytest -q          # module + checkpoint parity (CPU-forced)
+uv run pytest -q          # import + end-to-end sample smoke (CPU-forced)
 uv run ruff check .
 ```
 
