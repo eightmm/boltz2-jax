@@ -128,13 +128,17 @@ def export_features(pt_path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    root = Path(__file__).resolve().parent.parent
+    cache = root / ".cache" / "boltz"
     parser.add_argument(
-        "--conf-ckpt", type=Path, default=Path("../boltz/.cache/boltz/boltz2_conf.ckpt")
+        "--conf-ckpt", type=Path, default=cache / "boltz2_conf.ckpt"
     )
     parser.add_argument(
-        "--aff-ckpt", type=Path, default=Path("../boltz/.cache/boltz/boltz2_aff.ckpt")
+        "--aff-ckpt", type=Path, default=cache / "boltz2_aff.ckpt"
     )
-    parser.add_argument("--out-dir", type=Path, default=Path("outputs/native_weights"))
+    parser.add_argument(
+        "--out-dir", type=Path, default=root / "outputs" / "native_weights"
+    )
     parser.add_argument(
         "--dtype", choices=["fp32", "bf16", "fp16"], default="fp32",
         help="storage dtype for conf weights; casts FLOAT arrays only, writes "

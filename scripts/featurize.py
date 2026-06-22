@@ -19,8 +19,7 @@ from boltz_jax.data.module.inferencev2 import PredictionDataset  # noqa: E402
 from boltz_jax.data.preprocess import check_inputs, process_inputs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-BOLTZ_ROOT = ROOT.parent / "boltz"
-MOL_DIR = BOLTZ_ROOT / ".cache" / "boltz" / "mols"
+MOL_DIR = ROOT / ".cache" / "boltz" / "mols"
 REF_NPZ = ROOT / "outputs" / "real_features" / "1UBQ_A.npz"
 RECORD_ID = "1UBQ_A"
 

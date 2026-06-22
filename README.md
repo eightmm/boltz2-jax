@@ -48,6 +48,10 @@ uv run --extra cuda13 --extra torch-bridge python scripts/predict.py --input job
 paths `predict.py` reads, so step 3 needs no path flags. `predict.py` defaults
 match Boltz-2 (`--steps 200 --recycling 3`, step scale 1.5, fp32).
 
+All artifacts stay inside the project and are git-ignored: downloads + native
+weights under `.cache/`, and predictions, compile cache, and feature cache under
+`outputs/`. Nothing is written outside the repo.
+
 > Always pass the same extras to `uv run` (`--extra cuda13 --extra
 > torch-bridge`) as you did to `uv sync`. Without them `uv` prunes the GPU JAX
 > plugin and the torch-side featurizer from the env. (Substitute `cuda12` to
