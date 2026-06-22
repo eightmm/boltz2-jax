@@ -34,7 +34,7 @@ def main() -> None:
         "--weights", type=Path, default=ROOT / "outputs/native_weights/boltz2_conf"
     )
     p.add_argument(
-        "--mols", type=Path, default=ROOT.parent / "boltz/.cache/boltz/mols"
+        "--mols", type=Path, default=ROOT / ".cache/boltz/mols"
     )
     p.add_argument("--out-dir", type=Path, default=ROOT / "outputs/predictions")
     p.add_argument("--steps", type=int, default=200)

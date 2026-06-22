@@ -27,71 +27,76 @@ low-precision inference — selectable per backend without changing weights.
   602 s / 21.8 GiB; fp32 matches torch to **1e-4 Å**. Wins come from XLA fusion,
   MSA subsampling, and feature/compile caches.
 
-## Install
+## Quickstart
 
-Uses [uv](https://docs.astral.sh/uv/). Pick the CUDA extra matching your driver
-(this workstation is CUDA 13):
+Three commands ([uv](https://docs.astral.sh/uv/) required). Use `CUDA=cuda12`
+if your driver is CUDA 12 (this workstation is CUDA 13).
 
 ```bash
-# GPU (CUDA 13) + torch bridge (checkpoint conversion + featurization) + dev
+# 1. Install (GPU JAX + torch bridge + dev)
 uv sync --extra cuda13 --extra torch-bridge --extra dev
-# CUDA 12 alternative:
-uv sync --extra cuda12 --extra torch-bridge --extra dev
+
+# 2. One-time setup: download Boltz-2 weights + molecule DB and convert them
+bash scripts/setup.sh                 # CUDA=cuda12 bash scripts/setup.sh
+
+# 3. Predict: raw YAML -> structure
+uv run --extra cuda13 --extra torch-bridge python scripts/predict.py --input job.yaml --fmt cif
 ```
 
-> Note: `uv sync` must always include the `cuda13` (or `cuda12`) extra, or the
-> GPU JAX plugin is pruned and JAX silently falls back to CPU. Verify with
-> `uv run python -c "import jax; print(jax.default_backend())"` → `gpu`.
+`scripts/setup.sh` is idempotent (skips artifacts already present) and writes to
+`.cache/boltz/` (weights, `mols/`) and `outputs/native_weights/` — the default
+paths `predict.py` reads, so step 3 needs no path flags. `predict.py` defaults
+match Boltz-2 (`--steps 200 --recycling 3`, step scale 1.5, fp32).
 
-## Model weights & data
+> Always pass the same extras to `uv run` (`--extra cuda13 --extra
+> torch-bridge`) as you did to `uv sync`. Without them `uv` prunes the GPU JAX
+> plugin and the torch-side featurizer from the env. (Substitute `cuda12` to
+> match your driver.)
 
-Weights and the molecule database come from the **same sources as upstream
-Boltz** (MIT licensed, Boltz community on HuggingFace):
+<details>
+<summary>Manual setup (instead of step 2)</summary>
 
-| Artifact | URL |
-|----------|-----|
-| Structure model | `https://huggingface.co/boltz-community/boltz-2/resolve/main/boltz2_conf.ckpt` |
-| Affinity model | `https://huggingface.co/boltz-community/boltz-2/resolve/main/boltz2_aff.ckpt` |
-| Molecule DB (CCD `mols`) | `https://huggingface.co/boltz-community/boltz-2/resolve/main/mols.tar` |
+Weights and the molecule DB come from the **same sources as upstream Boltz**
+(MIT, Boltz community on HuggingFace). If you already have a Boltz cache, point
+`--mols` / `--conf-ckpt` at it.
 
 ```bash
 mkdir -p .cache/boltz && cd .cache/boltz
-curl -L -o boltz2_conf.ckpt https://huggingface.co/boltz-community/boltz-2/resolve/main/boltz2_conf.ckpt
-curl -L -o boltz2_aff.ckpt  https://huggingface.co/boltz-community/boltz-2/resolve/main/boltz2_aff.ckpt
-curl -L -o mols.tar         https://huggingface.co/boltz-community/boltz-2/resolve/main/mols.tar
-tar -xf mols.tar            # -> .cache/boltz/mols/   (canonical residue molecules)
+base=https://huggingface.co/boltz-community/boltz-2/resolve/main
+curl -L -o boltz2_conf.ckpt $base/boltz2_conf.ckpt
+curl -L -o boltz2_aff.ckpt  $base/boltz2_aff.ckpt
+curl -L -o mols.tar $base/mols.tar && tar -xf mols.tar && rm mols.tar  # -> mols/
 cd -
-```
-
-(These are the same files upstream Boltz's `download_boltz2` fetches; if you
-already have a Boltz cache, point at that directory instead.)
-
-### Convert checkpoints to native JAX weights
-
-The JAX runtime loads `safetensors` converted once from the PyTorch `.ckpt`:
-
-```bash
 uv run --extra torch-bridge python scripts/export_native_weights.py \
   --conf-ckpt .cache/boltz/boltz2_conf.ckpt \
   --aff-ckpt  .cache/boltz/boltz2_aff.ckpt \
-  --out-dir   outputs/native_weights \
+  --out-dir   outputs/native_weights --features \
   --dtype fp32          # or bf16 / fp16 for half-precision storage
-# -> outputs/native_weights/boltz2_conf.safetensors, boltz2_aff.safetensors
 ```
+
+`uv sync` must always include a `cuda13`/`cuda12` extra or the GPU JAX plugin is
+pruned and JAX falls back to CPU. Verify:
+`uv run python -c "import jax; print(jax.default_backend())"` → `gpu`.
+</details>
 
 ## Inference
 
-`scripts/predict.py` is the entry point: raw YAML → structure file. Defaults
-match Boltz-2 (`--steps 200 --recycling 3`, step scale 1.5, fp32). `mols/` (from
-the download above) is required at featurization time.
+`scripts/predict.py` turns a raw YAML job into a structure file. After
+`setup.sh`, the minimal call is:
 
 ```bash
-uv run --extra torch-bridge python scripts/predict.py \
+uv run --extra cuda13 --extra torch-bridge python scripts/predict.py --input job.yaml --fmt cif
+```
+
+Full form (all defaults shown; override only what you need):
+
+```bash
+uv run --extra cuda13 --extra torch-bridge python scripts/predict.py \
   --input job.yaml \
   --weights outputs/native_weights/boltz2_conf \
   --mols .cache/boltz/mols \
   --out-dir outputs/predictions \
-  --fmt cif            # or pdb
+  --fmt cif
 ```
 
 ### Input examples
@@ -127,7 +132,7 @@ MSAs: set `msa: empty` (single sequence), point to a precomputed `.a3m`/`.csv`,
 or omit `msa` and generate one from the colabfold server with `--use-msa-server`:
 
 ```bash
-uv run --extra torch-bridge python scripts/predict.py \
+uv run --extra cuda13 --extra torch-bridge python scripts/predict.py \
   --input job.yaml --use-msa-server --fmt cif
 # [--msa-server-url https://api.colabfold.com] [--msa-pairing-strategy greedy|complete]
 ```
