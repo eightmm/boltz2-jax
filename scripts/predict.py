@@ -29,7 +29,16 @@ from featurize import featurize_yaml  # noqa: E402
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--input", type=Path, required=True, help="raw input YAML")
+    p.add_argument("--input", type=Path, help="raw input YAML")
+    p.add_argument(
+        "--seq", action="append", default=[],
+        help="protein sequence (repeatable); builds a job YAML when --input is "
+        "omitted",
+    )
+    p.add_argument(
+        "--ligand-ccd", action="append", default=[],
+        help="ligand CCD code (repeatable), used with --seq",
+    )
     p.add_argument(
         "--weights", type=Path, default=ROOT / "outputs/native_weights/boltz2_conf"
     )
@@ -78,6 +87,19 @@ def main() -> None:
     )
     args = p.parse_args()
 
+    if args.input is None:
+        assert args.seq or args.ligand_ccd, "provide --input YAML or --seq/--ligand-ccd"
+        from make_job_yaml import build_job_yaml
+
+        gen_dir = args.out_dir / "prep" / "job"
+        gen_dir.mkdir(parents=True, exist_ok=True)
+        args.input = gen_dir / "job.yaml"
+        args.input.write_text(
+            build_job_yaml(
+                args.seq, args.ligand_ccd, use_msa_server=args.use_msa_server
+            )
+        )
+        print(f"built job YAML: {args.input}")
     assert args.input.exists(), f"missing input: {args.input}"
 
     # --- Step 1: YAML -> processed tree + features (torch side) ---
