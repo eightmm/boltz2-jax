@@ -29,73 +29,37 @@ low-precision inference — selectable per backend without changing weights.
 
 ## Quickstart
 
-Three commands ([uv](https://docs.astral.sh/uv/) required). Use `CUDA=cuda12`
-if your driver is CUDA 12 (this workstation is CUDA 13).
+Two commands ([uv](https://docs.astral.sh/uv/) required):
 
 ```bash
-# 1. Install (GPU JAX + torch bridge + dev)
-uv sync --extra cuda13 --extra torch-bridge --extra dev
+# 1. One-time setup: install deps + download Boltz-2 weights/mols + convert
+bash scripts/setup.sh
 
-# 2. One-time setup: download Boltz-2 weights + molecule DB and convert them
-bash scripts/setup.sh                 # CUDA=cuda12 bash scripts/setup.sh
-
-# 3. Predict: raw YAML -> structure
-uv run --extra cuda13 --extra torch-bridge python scripts/predict.py --input job.yaml --fmt cif
+# 2. Predict: raw YAML -> structure
+uv run python scripts/predict.py --input job.yaml --fmt cif
 ```
 
-`scripts/setup.sh` is idempotent (skips artifacts already present) and writes to
-`.cache/boltz/` (weights, `mols/`) and `outputs/native_weights/` — the default
-paths `predict.py` reads, so step 3 needs no path flags. `predict.py` defaults
-match Boltz-2 (`--steps 200 --recycling 3`, step scale 1.5, fp32).
+`scripts/setup.sh` auto-detects your CUDA major version from the driver
+(override with `CUDA=cuda12 bash scripts/setup.sh`), runs `uv sync` with the GPU
++ torch-bridge extras, downloads the weights + molecule DB, and converts the
+checkpoints. It is idempotent. Because the env is synced once with the extras,
+`uv run python …` afterwards needs **no extra flags** — the GPU JAX plugin and
+the torch-side featurizer are already in the environment.
+
+`predict.py` defaults match Boltz-2 (`--steps 200 --recycling 3`, step scale
+1.5, fp32) and read the setup paths, so step 2 needs no path flags.
 
 All artifacts stay inside the project and are git-ignored: downloads + native
 weights under `.cache/`, and predictions, compile cache, and feature cache under
 `outputs/`. Nothing is written outside the repo.
 
-> Always pass the same extras to `uv run` (`--extra cuda13 --extra
-> torch-bridge`) as you did to `uv sync`. Without them `uv` prunes the GPU JAX
-> plugin and the torch-side featurizer from the env. (Substitute `cuda12` to
-> match your driver.)
-
-<details>
-<summary>Manual setup (instead of step 2)</summary>
-
-Weights and the molecule DB come from the **same sources as upstream Boltz**
-(MIT, Boltz community on HuggingFace). If you already have a Boltz cache, point
-`--mols` / `--conf-ckpt` at it.
-
-```bash
-mkdir -p .cache/boltz && cd .cache/boltz
-base=https://huggingface.co/boltz-community/boltz-2/resolve/main
-curl -L -o boltz2_conf.ckpt $base/boltz2_conf.ckpt
-curl -L -o boltz2_aff.ckpt  $base/boltz2_aff.ckpt
-curl -L -o mols.tar $base/mols.tar && tar -xf mols.tar && rm mols.tar  # -> mols/
-cd -
-uv run --extra torch-bridge python scripts/export_native_weights.py \
-  --conf-ckpt .cache/boltz/boltz2_conf.ckpt \
-  --aff-ckpt  .cache/boltz/boltz2_aff.ckpt \
-  --out-dir   outputs/native_weights --features \
-  --dtype fp32          # or bf16 / fp16 for half-precision storage
-```
-
-`uv sync` must always include a `cuda13`/`cuda12` extra or the GPU JAX plugin is
-pruned and JAX falls back to CPU. Verify:
-`uv run python -c "import jax; print(jax.default_backend())"` → `gpu`.
-</details>
-
 ## Inference
 
-`scripts/predict.py` turns a raw YAML job into a structure file. After
-`setup.sh`, the minimal call is:
+`scripts/predict.py` turns a raw YAML job into a structure file. Full form (all
+defaults shown; override only what you need):
 
 ```bash
-uv run --extra cuda13 --extra torch-bridge python scripts/predict.py --input job.yaml --fmt cif
-```
-
-Full form (all defaults shown; override only what you need):
-
-```bash
-uv run --extra cuda13 --extra torch-bridge python scripts/predict.py \
+uv run python scripts/predict.py \
   --input job.yaml \
   --weights outputs/native_weights/boltz2_conf \
   --mols .cache/boltz/mols \
@@ -136,7 +100,7 @@ MSAs: set `msa: empty` (single sequence), point to a precomputed `.a3m`/`.csv`,
 or omit `msa` and generate one from the colabfold server with `--use-msa-server`:
 
 ```bash
-uv run --extra cuda13 --extra torch-bridge python scripts/predict.py \
+uv run python scripts/predict.py \
   --input job.yaml --use-msa-server --fmt cif
 # [--msa-server-url https://api.colabfold.com] [--msa-pairing-strategy greedy|complete]
 ```
