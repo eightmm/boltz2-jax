@@ -157,7 +157,7 @@ The fused-kernel backends (`tokamax`/`pallas`) are opt-in. On Blackwell
 **sm120** (triton-only) they are a net regression end-to-end — the 200-step
 diffusion attention is an fp32 island, so the kernels fall back to a slow fp32
 path. `xla` is the default. On cudnn-capable GPUs / TPU they may win; re-measure
-per target. See [`docs/OPTIMIZATION.md`](docs/OPTIMIZATION.md).
+per target.
 
 ## Tests
 

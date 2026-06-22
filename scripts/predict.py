@@ -125,7 +125,7 @@ def main() -> None:
     params = load_params(args.weights)
 
     if args.bucket:
-        from check_padding_invariance import pad_feats
+        from boltz_jax.data.bucket import pad_feats
 
         token_ladder = (256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096)
         n_tok = int(feats_np["token_pad_mask"].shape[-1])
