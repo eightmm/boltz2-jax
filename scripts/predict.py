@@ -35,9 +35,13 @@ def main() -> None:
         help="protein sequence (repeatable); builds a job YAML when --input is "
         "omitted",
     )
+    p.add_argument("--dna", action="append", default=[], help="DNA sequence")
+    p.add_argument("--rna", action="append", default=[], help="RNA sequence")
     p.add_argument(
-        "--ligand-ccd", action="append", default=[],
-        help="ligand CCD code (repeatable), used with --seq",
+        "--ligand-ccd", action="append", default=[], help="ligand CCD code"
+    )
+    p.add_argument(
+        "--ligand-smiles", action="append", default=[], help="ligand SMILES"
     )
     p.add_argument(
         "--weights", type=Path, default=ROOT / "outputs/native_weights/boltz2_conf"
@@ -88,7 +92,10 @@ def main() -> None:
     args = p.parse_args()
 
     if args.input is None:
-        assert args.seq or args.ligand_ccd, "provide --input YAML or --seq/--ligand-ccd"
+        any_entity = (
+            args.seq or args.dna or args.rna or args.ligand_ccd or args.ligand_smiles
+        )
+        assert any_entity, "provide --input YAML or --seq/--dna/--rna/--ligand-*"
         from make_job_yaml import build_job_yaml
 
         gen_dir = args.out_dir / "prep" / "job"
@@ -96,7 +103,12 @@ def main() -> None:
         args.input = gen_dir / "job.yaml"
         args.input.write_text(
             build_job_yaml(
-                args.seq, args.ligand_ccd, use_msa_server=args.use_msa_server
+                args.seq,
+                args.ligand_ccd,
+                dna=args.dna,
+                rna=args.rna,
+                ligands_smiles=args.ligand_smiles,
+                use_msa_server=args.use_msa_server,
             )
         )
         print(f"built job YAML: {args.input}")
