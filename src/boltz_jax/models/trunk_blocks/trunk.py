@@ -216,7 +216,7 @@ def boltz2_sample_forward(
     num_sampling_steps: int = 5,
     token_layers: int | None = None,
     multiplicity: int = 1,
-    sigma_min: float = 0.0004,
+    sigma_min: float = 0.0001,  # match torch Boltz2DiffusionParams (main.py:137)
     sigma_max: float = 160.0,
     sigma_data: float = 16.0,
     rho: float = 7.0,
