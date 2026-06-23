@@ -231,6 +231,7 @@ def boltz2_sample_forward(
     steering_args: Mapping[str, object] | None = None,
     init_noise: jnp.ndarray | None = None,
     step_noises: jnp.ndarray | None = None,
+    aug_transforms: tuple[jnp.ndarray, jnp.ndarray] | None = None,
     use_scan: bool = True,
     trunk_use_scan: bool | None = None,
     score_use_scan: bool | None = None,
@@ -269,6 +270,13 @@ def boltz2_sample_forward(
     TF32, the caller should ALSO set
     ``jax.config.update("jax_default_matmul_precision", "default")`` so the
     remaining unpinned matmuls (diffusion score, triangle mult, einsums) match.
+
+    ``aug_transforms`` (default None) is a test-only injection hook for parity
+    studies: a ``(R, tr)`` tuple with ``R`` shape ``(num_sampling_steps,
+    multiplicity, 3, 3)`` and ``tr`` shape ``(num_sampling_steps, multiplicity,
+    1, 3)``. When provided AND ``augmentation`` is True, the per-step random
+    augmentation samples are replaced by these fixed transforms instead of being
+    drawn from ``key``. Default None is fully inert (original behaviour).
 
     ``chunk_size`` (default 128) is threaded to the triangle / outer-product-mean
     ops; it is bit-exact (the reduction axis is never split) and only reorders
@@ -393,13 +401,17 @@ def boltz2_sample_forward(
 
         def _scan_body(carry, xs):
             atom_coords_c, atom_coords_denoised_c, has_denoised, key_c = carry
-            sigma_tm, sigma_t, gamma, injected = xs
+            sigma_tm, sigma_t, gamma, injected, aug_r, aug_tr = xs
 
             if augmentation:
-                key_c, aug_key = jax.random.split(key_c)
-                random_r, random_tr = _compute_random_augmentation(
-                    aug_key, atom_coords_c.shape[0], s_trans, atom_coords_c.dtype
-                )
+                if aug_transforms is not None:
+                    random_r = aug_r.astype(atom_coords_c.dtype)
+                    random_tr = aug_tr.astype(atom_coords_c.dtype)
+                else:
+                    key_c, aug_key = jax.random.split(key_c)
+                    random_r, random_tr = _compute_random_augmentation(
+                        aug_key, atom_coords_c.shape[0], s_trans, atom_coords_c.dtype
+                    )
                 atom_coords_c = atom_coords_c - atom_coords_c.mean(
                     axis=-2, keepdims=True
                 )
@@ -464,7 +476,13 @@ def boltz2_sample_forward(
             injected_xs = jnp.asarray(step_noises, dtype=jnp.float32)
         else:
             injected_xs = jnp.zeros((num_sampling_steps,), dtype=jnp.float32)
-        xs = (sigmas[:-1], sigmas[1:], gammas[1:], injected_xs)
+        if aug_transforms is not None:
+            aug_r_xs = jnp.asarray(aug_transforms[0], dtype=jnp.float32)
+            aug_tr_xs = jnp.asarray(aug_transforms[1], dtype=jnp.float32)
+        else:
+            aug_r_xs = jnp.zeros((num_sampling_steps, multiplicity, 3, 3))
+            aug_tr_xs = jnp.zeros((num_sampling_steps, multiplicity, 1, 3))
+        xs = (sigmas[:-1], sigmas[1:], gammas[1:], injected_xs, aug_r_xs, aug_tr_xs)
         denoised_init = jnp.zeros(shape, dtype=jnp.float32)
         init_carry = (atom_coords, denoised_init, jnp.bool_(False), key)
         (atom_coords, _, _, key), _ = jax.lax.scan(_scan_body, init_carry, xs)
@@ -476,10 +494,18 @@ def boltz2_sample_forward(
         gamma = gammas[step_idx + 1]
 
         if augmentation:
-            key, aug_key = jax.random.split(key)
-            random_r, random_tr = _compute_random_augmentation(
-                aug_key, atom_coords.shape[0], s_trans, atom_coords.dtype
-            )
+            if aug_transforms is not None:
+                random_r = jnp.asarray(
+                    aug_transforms[0][step_idx], dtype=atom_coords.dtype
+                )
+                random_tr = jnp.asarray(
+                    aug_transforms[1][step_idx], dtype=atom_coords.dtype
+                )
+            else:
+                key, aug_key = jax.random.split(key)
+                random_r, random_tr = _compute_random_augmentation(
+                    aug_key, atom_coords.shape[0], s_trans, atom_coords.dtype
+                )
             atom_coords = atom_coords - atom_coords.mean(axis=-2, keepdims=True)
             atom_coords = atom_coords @ random_r + random_tr
             if atom_coords_denoised is not None:
