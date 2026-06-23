@@ -76,8 +76,10 @@ def confidence_module_forward(
     pred_distogram_logits: jnp.ndarray,
     *,
     multiplicity: int = 1,
-    cyclic_pos_enc: bool = False,
-    fix_sym_check: bool = False,
+    # Match the Boltz-2 conf checkpoint config (fix_sym_check / cyclic_pos_enc
+    # are True in the trained hparams; see boltz2_trunk_forward).
+    cyclic_pos_enc: bool = True,
+    fix_sym_check: bool = True,
     eps: float = 1e-5,
     use_scan: bool = True,
     chunk_size: int = 128,

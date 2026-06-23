@@ -699,8 +699,13 @@ def boltz2_trunk_forward(
     *,
     recycling_steps: int = 0,
     use_bond_type_feature: bool = True,
-    cyclic_pos_enc: bool = False,
-    fix_sym_check: bool = False,
+    # Boltz-2 conf checkpoint hyper_parameters set fix_sym_check=True and
+    # cyclic_pos_enc=True (the nn.Module constructor defaults are False, but
+    # Lightning restores the trained hparams). The relative-position chain
+    # encoding differs under fix_sym_check even for single-chain inputs, so the
+    # port must match the checkpoint to reproduce torch s/z.
+    cyclic_pos_enc: bool = True,
+    fix_sym_check: bool = True,
     eps: float = 1e-5,
     use_scan: bool = True,
     chunk_size: int = 128,
@@ -882,8 +887,9 @@ def relative_position_forward(
     *,
     r_max: int = 32,
     s_max: int = 2,
-    cyclic_pos_enc: bool = False,
-    fix_sym_check: bool = False,
+    # Match the Boltz-2 conf checkpoint config (see boltz2_trunk_forward).
+    cyclic_pos_enc: bool = True,
+    fix_sym_check: bool = True,
 ) -> jnp.ndarray:
     """Run Boltz RelativePositionEncoder."""
 
