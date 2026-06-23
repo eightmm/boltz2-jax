@@ -22,10 +22,22 @@ low-precision inference — selectable per backend without changing weights.
   under `src/boltz_jax/data/`). Supported inputs: proteins, ligands (SMILES and
   CCD codes), templates (CIF/PDB), and MSAs from `msa: empty`, precomputed
   a3m/csv, or the colabfold MSA server.
-- Faster and lighter than the PyTorch Boltz-2 reference: at integrin9 (952 res,
-  deep MSA, 200 steps) steady inference is **89 s / 11.2 GiB** vs `boltz predict`
-  602 s / 21.8 GiB; fp32 matches torch to **1e-4 Å**. Wins come from XLA fusion,
-  MSA subsampling, and feature/compile caches.
+- **Numerically faithful to torch Boltz-2.** With matched precision, seed, and
+  injected diffusion noise (init + per-step churn + augmentation), boltz-jax fp32
+  reproduces torch fp32 coordinates to **1.9e-4 Å RAW RMSD** — the XLA/cuBLAS
+  floor. The trunk is bit-exact (corr 1.0) and a single denoiser step matches to
+  1e-4 Å. A normal jax run differs from a torch run only by framework RNG (each
+  draws its own diffusion noise), not by any model error.
+- Performance (integrin9, 952 res, deep MSA, 25 structures, **bf16, matched
+  precision**): boltz-jax ≈ **1.25× faster** than `boltz predict` with VRAM on
+  par (~21 GB both); per-added-diffusion-sample cost is flat in VRAM for jax vs
+  rising for torch. Earlier "6.8× / −50% VRAM" figures were an unfair fp32-vs-bf16
+  comparison and are retracted. MSA is subsampled to 1024 by **both** frameworks,
+  so it is not a cross-framework differentiator.
+- MSA subsampling: boltz-jax takes the **first 1024** rows (deterministic);
+  upstream torch takes a **random** 1024 (`randperm`, unseeded). Identical fold,
+  but exact coordinates can't bit-match at MSA depth > 1024 by construction. Use
+  `subsample_msa=False` or cap MSA ≤ 1024 for bit-level cross-framework tests.
 
 ## Quickstart
 
