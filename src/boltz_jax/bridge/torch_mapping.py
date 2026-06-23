@@ -968,6 +968,8 @@ def map_boltz2_trunk_state_dict(
         params["token_bonds_type"] = _to_jax_array(
             state_dict["token_bonds_type.weight"]
         )
+    if "template_module.a_proj.weight" in state_dict:
+        params["template_module"] = map_template_module_state_dict(state_dict)
     return params
 
 
@@ -1204,6 +1206,46 @@ def map_pairformer_no_seq_layer_state_dict(
             state_dict, f"{prefix}.tri_att_end"
         ),
         "transition_z": map_transition_state_dict(state_dict, f"{prefix}.transition_z"),
+    }
+
+
+def map_pairformer_no_seq_module_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str,
+    num_layers: int | None = None,
+) -> dict[str, Any]:
+    """Map a Boltz PairformerNoSeqModule (template stack) to a JAX pytree."""
+
+    layer_indices = _module_list_indices(state_dict, f"{prefix}.layers", num_layers)
+    return {
+        "layers": [
+            map_pairformer_no_seq_layer_state_dict(state_dict, f"{prefix}.layers.{i}")
+            for i in layer_indices
+        ],
+    }
+
+
+def map_template_module_state_dict(
+    state_dict: Mapping[str, Any],
+    prefix: str = "template_module",
+) -> dict[str, Any]:
+    """Map Boltz-2 TemplateV2Module weights to a JAX pytree."""
+
+    return {
+        "z_norm": {
+            "scale": _to_jax_array(state_dict[f"{prefix}.z_norm.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.z_norm.bias"]),
+        },
+        "v_norm": {
+            "scale": _to_jax_array(state_dict[f"{prefix}.v_norm.weight"]),
+            "bias": _to_jax_array(state_dict[f"{prefix}.v_norm.bias"]),
+        },
+        "z_proj": {"kernel": _linear_kernel(state_dict[f"{prefix}.z_proj.weight"])},
+        "a_proj": {"kernel": _linear_kernel(state_dict[f"{prefix}.a_proj.weight"])},
+        "u_proj": {"kernel": _linear_kernel(state_dict[f"{prefix}.u_proj.weight"])},
+        "pairformer": map_pairformer_no_seq_module_state_dict(
+            state_dict, f"{prefix}.pairformer"
+        ),
     }
 
 

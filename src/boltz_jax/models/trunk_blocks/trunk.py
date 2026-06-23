@@ -24,6 +24,10 @@ from boltz_jax.models.triangle.triangle_attention import (
 from boltz_jax.models.trunk_blocks.input_embedder import input_embedder_forward
 from boltz_jax.models.trunk_blocks.msa import msa_module_forward
 from boltz_jax.models.trunk_blocks.pairformer import pairformer_module_forward
+from boltz_jax.models.trunk_blocks.template import (
+    has_template_feats,
+    template_module_forward,
+)
 
 Params = Mapping[str, object]
 
@@ -824,6 +828,11 @@ def boltz2_trunk_forward(
     z = jnp.zeros_like(z_init)
     mask = feats["token_pad_mask"].astype(jnp.float32)
     pair_mask = mask[:, :, None] * mask[:, None, :]
+    # Gate the template path statically: only when template weights are present
+    # AND the input carries a real (non-dummy) template. No-template inputs take
+    # the original path and stay bit-identical to the non-template trunk.
+    use_template = "template_module" in params and has_template_feats(feats)
+
     def _recycle_step(s: jnp.ndarray, z: jnp.ndarray) -> tuple[jnp.ndarray, ...]:
         s = s_init + _linear(
             _layer_norm(
@@ -845,6 +854,19 @@ def boltz2_trunk_forward(
         )
         s = _shard_single(s, mesh, token_axis, shard_tokens)
         z = _shard_pair(z, mesh, token_axis, shard_tokens)
+        if use_template:
+            z = z + template_module_forward(
+                params["template_module"],
+                z,
+                feats,
+                pair_mask,
+                eps=eps,
+                chunk_size=chunk_size,
+                triangle_attention_chunk=triangle_attention_chunk,
+                triangle_attention_q_chunk=triangle_attention_q_chunk,
+                transition_hidden_chunk=transition_hidden_chunk,
+                triangle_backend=triangle_backend,
+            )
         z = z + msa_module_forward(
             params["msa_module"],
             z,
