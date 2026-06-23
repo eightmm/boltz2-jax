@@ -64,13 +64,23 @@ def boltz2_predict(
         "trunk_use_scan", sample_kwargs.get("use_scan", True)
     )
 
+    # NOTE: boltz2_trunk_forward has no compute_dtype param, so the trunk runs
+    # fp32 regardless of a `compute_dtype` in sample_kwargs (only the diffusion
+    # sampler honors it). Backend/precision/chunk knobs ARE forwarded below.
     trunk = boltz2_trunk_forward(
         params["trunk"],
         feats,
         recycling_steps=recycling_steps,
         eps=eps,
         use_scan=bool(trunk_use_scan),
-        glu_backend=sample_kwargs.get("glu_backend", "xla"),
+        chunk_size=int(sample_kwargs.get("chunk_size", 128)),
+        triangle_attention_chunk=sample_kwargs.get("triangle_attention_chunk"),
+        triangle_attention_q_chunk=sample_kwargs.get("triangle_attention_q_chunk"),
+        transition_hidden_chunk=sample_kwargs.get("transition_hidden_chunk"),
+        matmul_precision=str(sample_kwargs.get("matmul_precision", "highest")),
+        attention_backend=str(sample_kwargs.get("attention_backend", "xla")),
+        triangle_backend=str(sample_kwargs.get("triangle_backend", "xla")),
+        glu_backend=str(sample_kwargs.get("glu_backend", "xla")),
         subsample_msa=subsample_msa,
         num_subsampled_msa=num_subsampled_msa,
     )
